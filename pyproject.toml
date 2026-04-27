@@ -1,0 +1,33 @@
+[project]
+name = "youzi-agent"
+version = "0.1.0"
+description = "A-share retail-style multi-agent trading research pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.50,<0.3",
+    "langgraph-checkpoint-sqlite>=2.0",
+    "langchain-openai>=0.2",
+    "akshare>=1.13,<2",
+    "pandas>=2.0",
+    "pyarrow>=15",
+    "pydantic>=2.5",
+    "rich>=13",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "ruff", "mypy"]
+
+[project.scripts]
+youzi-agent = "youzi_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: tests that need real network/LLM (skipped in CI)"]
