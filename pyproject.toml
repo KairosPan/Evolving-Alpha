@@ -5,8 +5,8 @@ description = "A-share retail-style multi-agent trading research pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.2.50,<0.3",
-    "langgraph-checkpoint-sqlite>=2.0",
-    "langchain-openai>=0.2",
+    "langgraph-checkpoint-sqlite>=2.0,<3",
+    "langchain-openai>=0.2,<0.4",
     "akshare>=1.13,<2",
     "pandas>=2.0",
     "pyarrow>=15",
