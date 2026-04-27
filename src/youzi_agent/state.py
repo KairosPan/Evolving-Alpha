@@ -111,7 +111,8 @@ class FirstBoardState(TypedDict, total=False):
 
 
 class WeakToStrongState(FirstBoardState):
-    pass
+    _w2s_pool: list[dict]
+    _w2s_scored: list[dict]
 
 
 class ContinuousState(FirstBoardState):
