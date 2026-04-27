@@ -105,6 +105,9 @@ class FirstBoardState(TypedDict, total=False):
     main_theme: Optional[str]
     candidates: Annotated[list[Candidate], add]
     errors: Annotated[list[str], add]
+    # private intra-subgraph keys
+    _fb_pool: list[dict]
+    _fb_scored: list[dict]
 
 
 class WeakToStrongState(FirstBoardState):
