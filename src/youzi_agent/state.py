@@ -121,4 +121,6 @@ class ContinuousState(FirstBoardState):
 
 
 class SetbackReversalState(FirstBoardState):
-    pass
+    emotion_phase: EmotionPhase
+    _sr_pool: list[dict]
+    _sr_scored: list[dict]
