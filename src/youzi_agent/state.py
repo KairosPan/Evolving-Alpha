@@ -116,7 +116,8 @@ class WeakToStrongState(FirstBoardState):
 
 
 class ContinuousState(FirstBoardState):
-    pass
+    _con_pool: list[dict]
+    _con_scored: list[dict]
 
 
 class SetbackReversalState(FirstBoardState):
