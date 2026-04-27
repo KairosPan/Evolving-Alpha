@@ -29,3 +29,23 @@ def test_market_sensor_populates_basic_stats():
     assert "ztb_today" in out["raw"]
     # blast_rate = (limit_up_yesterday-still-limit_up-today) ratio approximation
     assert 0 <= out["blast_rate"] <= 1
+
+def test_market_sensor_degrades_on_fetch_error():
+    cli = MagicMock()
+    cli.limit_up_pool.side_effect = RuntimeError("network error")
+    out = market_sensor_node({"target_date": "2026-04-25"}, client=cli)
+    assert "errors" in out
+    assert out["limit_up_count"] == 0
+    assert out["consec_top"] == 0
+    assert out["blast_rate"] == 0.0
+
+def test_market_sensor_degrades_on_missing_consec_column():
+    cli = MagicMock()
+    weird = pd.DataFrame({"代码": ["600000"], "名称": ["x"]})  # no 连板/连板数
+    cli.limit_up_pool.return_value = weird
+    cli.blast_pool.return_value = pd.DataFrame()
+    cli.index_daily.return_value = pd.DataFrame()
+    cli.market_activity.return_value = pd.DataFrame()
+    out = market_sensor_node({"target_date": "2026-04-25"}, client=cli)
+    assert any("连板" in e for e in out["errors"])
+    assert out["consec_top"] == 0

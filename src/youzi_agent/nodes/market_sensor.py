@@ -23,6 +23,16 @@ def _calc_blast_rate(ztb_today: pd.DataFrame, zb_yest: pd.DataFrame) -> float:
     return round(blasted / denom, 4) if denom else 0.0
 
 
+def _safe_defaults(extra_errors: list[str] | None = None) -> dict:
+    return {
+        "raw": {},
+        "limit_up_count": 0,
+        "consec_top": 0,
+        "blast_rate": 0.0,
+        "errors": extra_errors or [],
+    }
+
+
 def market_sensor_node(state: MarketState, *, client: AkshareClient | None = None) -> dict:
     cli = client or AkshareClient()
     date = state["target_date"]
@@ -37,13 +47,18 @@ def market_sensor_node(state: MarketState, *, client: AkshareClient | None = Non
             "activity":      cli.market_activity(date),
         }
     except Exception as e:
-        return {"errors": [f"market_sensor: data fetch failed: {e}"]}
+        return _safe_defaults([f"market_sensor: data fetch failed: {e}"])
 
     ztb = raw["ztb_today"]
-    consec_col = "连板数" if "连板数" in ztb.columns else "连板"
+    if len(ztb) == 0:
+        return {**_safe_defaults(["market_sensor: empty ztb_today"]), "raw": raw}
+    consec_col = next((c for c in ("连板数", "连板") if c in ztb.columns), None)
+    if consec_col is None:
+        return {**_safe_defaults(["market_sensor: missing 连板 column"]), "raw": raw,
+                "limit_up_count": int(len(ztb))}
     return {
         "raw": raw,
         "limit_up_count": int(len(ztb)),
-        "consec_top": int(ztb[consec_col].max()) if len(ztb) else 0,
+        "consec_top": int(ztb[consec_col].max()),
         "blast_rate": _calc_blast_rate(ztb, raw["zb_yesterday"]),
     }

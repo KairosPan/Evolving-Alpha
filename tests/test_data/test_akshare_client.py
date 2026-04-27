@@ -48,3 +48,17 @@ def test_market_activity_strips_percent_strings(tmp_path):
         # After cleaning, value column should be float
         assert out["value"].dtype.kind == "f"
         assert float(out.loc[out["item"] == "活跃度", "value"].iloc[0]) == 48.02
+
+def test_retry_does_not_sleep_after_last_attempt():
+    """Sanity: 2 attempts that all fail should not sleep after the second."""
+    import time
+    calls = {"n": 0}
+    def always_fail():
+        calls["n"] += 1
+        raise RuntimeError("nope")
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError):
+        _retry(always_fail, attempts=2, backoff=2.0)
+    elapsed = time.monotonic() - t0
+    # With backoff=2.0 and attempts=2: only 1 sleep (2.0**0 = 1s) between attempt 1 and 2
+    assert elapsed < 1.5     # was previously > 2.5s (1s + 2s)

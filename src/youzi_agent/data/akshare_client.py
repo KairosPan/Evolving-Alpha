@@ -18,7 +18,8 @@ def _retry(fn: Callable, attempts: int = 3, backoff: float = 1.5):
             return fn()
         except Exception as e:
             last = e
-            time.sleep(backoff ** i)
+            if i < attempts - 1:
+                time.sleep(backoff ** i)
     assert last is not None
     raise last
 
