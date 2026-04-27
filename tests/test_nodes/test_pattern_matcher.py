@@ -46,3 +46,16 @@ def test_pattern_matcher_climax_emits_no_hits():
     }
     out = pattern_matcher_node(state)
     assert out["pattern_hits"] == []
+
+
+def test_setback_reversal_route_disabled_in_v1():
+    """v1: divergence + first_div should NOT activate setback_reversal subagent."""
+    state = {
+        "emotion_phase": "divergence", "is_new_cycle_day": False,
+        "succession_status": "first_div", "index_phase": "uptrend",
+        "limit_up_count": 50, "consec_top": 3, "blast_rate": 0.20,
+        "use_llm": False,
+    }
+    out = pattern_matcher_node(state)
+    targets = {h["target_subagent"] for h in out["pattern_hits"]}
+    assert "setback_reversal" not in targets

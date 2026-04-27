@@ -6,6 +6,7 @@ import datetime as _dt
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -39,9 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.refresh:
         os.environ["YOUZI_REFRESH"] = "1"
     graph = build_graph(checkpoint_path=args.checkpoint)
+    thread_id = f"{date}-{uuid.uuid4().hex[:8]}"
     state = graph.invoke(
         {"target_date": date, "use_llm": not args.no_llm},
-        config={"configurable": {"thread_id": date}},
+        config={"configurable": {"thread_id": thread_id}},
     )
     if args.json:
         from .reporting import state_to_json
@@ -52,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             print(report_md.read_text())
     if state.get("errors"):
         return 2
-    if state.get("plan", {}).get("candidates") is None:
+    if state.get("plan") is None:
         return 1
     return 0
 

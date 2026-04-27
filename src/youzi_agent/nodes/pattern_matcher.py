@@ -6,6 +6,8 @@ from ..llm.schemas import PatternEdgeOut
 from ..state import MarketState, PatternHit
 
 # (emotion, is_new_cycle_day, succession_status, index_phase) -> [pattern_id]
+# v2 note: S2_setback_reversal is deferred until kline_loader is implemented;
+# any route that would activate it is mapped to [] until then.
 ROUTE_TABLE: dict[tuple[str, object, str, str], list[str]] = {
     ("chaos",      False, "broken",     "*"): ["L1_first_board", "L2_weak_to_strong"],
     ("recovery",   True,  "first_div",  "uptrend"): ["L1_first_board", "L2_weak_to_strong"],
@@ -14,7 +16,7 @@ ROUTE_TABLE: dict[tuple[str, object, str, str], list[str]] = {
     ("warming",    "*",   "*",          "*"): ["L1_first_board", "first_to_continuous"],
     ("main_rise",  False, "healthy",    "uptrend"): ["L4_strong_2b"],
     ("climax",     "*",   "*",          "*"): [],
-    ("divergence", False, "first_div",  "*"): ["S2_setback_reversal"],
+    ("divergence", False, "first_div",  "*"): [],   # v2: re-enable when kline_loader exists
     ("divergence", False, "second_div", "*"): [],
     ("decay_1",    "*",   "*",          "*"): [],
     ("decay_2",    "*",   "*",          "*"): [],
