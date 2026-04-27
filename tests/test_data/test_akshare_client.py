@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
-from youzi_agent.data.akshare_client import AkshareClient, _retry
+from youzi_agent.data.akshare_client import AkshareClient, _retry, _coerce_percent_strings
 
 def test_retry_succeeds_on_third_attempt():
     calls = {"n": 0}
@@ -38,3 +38,13 @@ def test_market_activity_fallback_when_legu_fails(tmp_path):
         out = cli.market_activity("2026-04-25")
         assert int(out.iloc[0]["red_count"]) == 3
         assert int(out.iloc[0]["limit_up"]) == 1
+
+def test_market_activity_strips_percent_strings(tmp_path):
+    cli = AkshareClient(cache_dir=tmp_path)
+    legu_with_pct = pd.DataFrame({"item": ["上涨家数", "活跃度"], "value": ["3001", "48.02%"]})
+    with patch("youzi_agent.data.akshare_client.ak") as ak_mock:
+        ak_mock.stock_market_activity_legu.return_value = legu_with_pct
+        out = cli.market_activity("2026-04-25")
+        # After cleaning, value column should be float
+        assert out["value"].dtype.kind == "f"
+        assert float(out.loc[out["item"] == "活跃度", "value"].iloc[0]) == 48.02

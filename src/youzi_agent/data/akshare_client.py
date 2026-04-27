@@ -27,6 +27,44 @@ def _ymd(date: str) -> str:
     return date.replace("-", "")
 
 
+def _coerce_percent_strings(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a new DataFrame with percent-string values converted to floats.
+
+    For each object-dtype column:
+    1. Any individual cell whose string representation matches
+       ``^-?\\d+(\\.\\d+)?%$`` is stripped of its ``%`` suffix and replaced
+       with the equivalent float value.
+    2. After percent stripping, ``pd.to_numeric`` is applied with
+       ``errors='ignore'``: if every value in the column can be converted to a
+       number the column is cast to float64; otherwise the column is left
+       as-is (mixed object).
+
+    This handles both all-string columns (e.g. ``["3001", "48.02%"]``) and
+    columns with mixed content (floats + one percent string + a date string).
+    """
+    import re
+    _PCT_RE = re.compile(r"^-?\d+(\.\d+)?%$")
+
+    def _maybe_strip_pct(v):
+        if isinstance(v, str) and _PCT_RE.match(v):
+            return float(v.rstrip("%"))
+        return v
+
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype.kind != "O":
+            continue
+        out[col] = out[col].map(_maybe_strip_pct)
+        try:
+            out[col] = pd.to_numeric(out[col])
+        except (ValueError, TypeError):
+            # Column has non-numeric values (e.g. date strings mixed with
+            # floats).  Cast everything to str so pyarrow can serialize the
+            # column uniformly.
+            out[col] = out[col].astype(str)
+    return out
+
+
 class AkshareClient:
     def __init__(self, cache_dir: str | Path = "data_cache"):
         self.cache_dir = Path(cache_dir)
@@ -60,6 +98,7 @@ class AkshareClient:
     def market_activity(self, date: str) -> pd.DataFrame:
         try:
             df = _retry(lambda: ak.stock_market_activity_legu())
+            df = _coerce_percent_strings(df)
             if "date" not in df.columns:
                 df = df.assign(date=date)
             return df
