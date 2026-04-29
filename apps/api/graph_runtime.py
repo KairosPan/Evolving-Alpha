@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import time
 import uuid
 from typing import Any, AsyncIterator
@@ -18,11 +20,15 @@ class GraphRuntime:
     def __init__(self, checkpoint_path: str = "checkpoints.db") -> None:
         self._graph = build_graph(checkpoint_path=checkpoint_path)
         self._queues: dict[str, asyncio.Queue[RunEvent]] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
 
     async def start(self, *, date: str, use_llm: bool, refresh: bool) -> str:
+        if refresh:
+            os.environ["YOUZI_REFRESH"] = "1"
         tid = f"{date}-{uuid.uuid4().hex[:8]}"
         self._queues[tid] = asyncio.Queue()
-        asyncio.create_task(self._drive(tid, date, use_llm, refresh))
+        # Retain the task ref so the event loop keeps it alive until done.
+        self._tasks[tid] = asyncio.create_task(self._drive(tid, date, use_llm, refresh))
         return tid
 
     async def stream(self, tid: str) -> AsyncIterator[RunEvent]:
@@ -63,7 +69,6 @@ class GraphRuntime:
 
 def _jsonable(obj: Any) -> Any:
     """Defensive: drop non-JSON-able fields from state patches (e.g. pandas DFs)."""
-    import json
     try:
         json.dumps(obj, default=str)
         return obj
