@@ -17,6 +17,13 @@ from .events import (AbortedEvent, DoneEvent, InterruptEvent, NodeEndEvent,
 
 _TERMINAL_TYPES = {"done", "aborted"}
 
+_PREDECESSOR: dict[str, str] = {
+    "theme_analyst": "emotion",
+    "leader_tracker": "theme_analyst",
+    "pattern_matcher": "leader_tracker",
+    "risk_guard": "arbitrage",
+}
+
 
 class GraphRuntime:
     def __init__(self, checkpoint_path: str = "checkpoints.db") -> None:
@@ -48,6 +55,87 @@ class GraphRuntime:
         if fut is None:
             raise RuntimeError(f"no pending interrupt for {tid}")
         fut.set_result(payload)
+
+    def has_state(self, tid: str) -> bool:
+        try:
+            return bool(self._graph.get_state({"configurable": {"thread_id": tid}}).values)
+        except Exception:
+            return False
+
+    async def edit(self, tid: str, path: str, value: Any) -> str:
+        from .editing import apply_patch, first_dirty_node, validate_path
+        validate_path(path)
+        cfg = {"configurable": {"thread_id": tid}}
+        cur = self._graph.get_state(cfg).values
+        if not cur:
+            raise KeyError(f"no state for {tid}")
+        full = apply_patch(cur, path, value)
+        target_node = first_dirty_node(path)
+
+        date = cur.get("target_date") or (tid.split("-", 1)[0] if "-" in tid else "")
+        new_tid = f"{date}-{uuid.uuid4().hex[:8]}"
+        new_cfg = {"configurable": {"thread_id": new_tid}}
+        as_node = _PREDECESSOR.get(target_node, target_node)
+        self._graph.update_state(new_cfg, full, as_node=as_node)
+        self._queues[new_tid] = asyncio.Queue()
+        self._tasks[new_tid] = asyncio.create_task(self._drive_continue(new_tid, new_cfg))
+        return new_tid
+
+    async def _drive_continue(self, tid: str, cfg: dict) -> None:
+        """Resume a fresh tid from a seeded checkpoint until done/interrupt."""
+        q = self._queues[tid]
+        loop = asyncio.get_running_loop()
+        last_node: dict[str, str | None] = {"v": None}
+
+        def _put_threadsafe(ev: RunEvent) -> None:
+            asyncio.run_coroutine_threadsafe(q.put(ev), loop).result()
+
+        def _run_sync(initial: Any) -> dict | None:
+            for chunk in self._graph.stream(initial, config=cfg, stream_mode="updates"):
+                if "__interrupt__" in chunk:
+                    iv = chunk["__interrupt__"]
+                    first = iv[0] if isinstance(iv, (tuple, list)) else iv
+                    return first.value
+                for node, patch in chunk.items():
+                    if last_node["v"] != node:
+                        _put_threadsafe(NodeStartEvent(
+                            type="node_start", node=node, ts=time.time()))
+                        last_node["v"] = node
+                    _put_threadsafe(NodeEndEvent(
+                        type="node_end", node=node, ts=time.time(),
+                        state_patch=_jsonable(patch),
+                    ))
+            return None
+
+        try:
+            cur_input: Any = None
+            while True:
+                interrupt_payload = await asyncio.to_thread(_run_sync, cur_input)
+                if interrupt_payload is None:
+                    break
+                node_name = "<unknown>"
+                snapshot: dict[str, Any] = {}
+                if isinstance(interrupt_payload, dict):
+                    node_name = interrupt_payload.get("node", "<unknown>")
+                    snapshot = interrupt_payload.get("snapshot", {}) or {}
+                await q.put(InterruptEvent(
+                    type="interrupt",
+                    node=node_name,
+                    snapshot=_jsonable(snapshot),
+                    ts=time.time(),
+                ))
+                fut = loop.create_future()
+                self._resume_signals[tid] = fut
+                review = await fut
+                if isinstance(review, dict) and review.get("patch"):
+                    self._graph.update_state(cfg, review["patch"])
+                cur_input = Command(resume=review)
+            final = self._graph.get_state(cfg).values
+            await q.put(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
+        except Exception as e:
+            await q.put(NodeErrorEvent(type="node_error", node=last_node["v"] or "<run>",
+                                       ts=time.time(), message=str(e)))
+            await q.put(AbortedEvent(type="aborted", reason=str(e), ts=time.time()))
 
     async def _drive(self, tid: str, date: str, use_llm: bool, refresh: bool) -> None:
         cfg = {"configurable": {"thread_id": tid}}
