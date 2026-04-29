@@ -40,3 +40,13 @@ export async function resumeRun(tid: string, body: { action?: 'approve' | 'edit'
   if (!r.ok) throw new Error(`resume failed: ${r.status}`);
   return r.json();
 }
+
+export async function editState(tid: string, path: string, value: unknown): Promise<{ rerun_tid: string }> {
+  const r = await fetch(`${BASE}/api/state/${tid}/edit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path, value }),
+  });
+  if (!r.ok) throw new Error(`edit failed: ${r.status}`);
+  return r.json();
+}

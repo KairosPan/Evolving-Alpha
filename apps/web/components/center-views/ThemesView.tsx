@@ -1,5 +1,6 @@
 'use client';
 import { useStateStore } from '@/lib/store/stateStore';
+import { EditableCell } from '@/lib/editing/EditableCell';
 
 export function ThemesView() {
   const themes = (useStateStore((s) => s.state).themes ?? {}) as Record<string, any>;
@@ -10,7 +11,11 @@ export function ThemesView() {
       {entries.map(([name, t]) => (
         <div key={name} className="border border-neutral-800 rounded p-3">
           <div className="font-bold">{name}</div>
-          <div className="text-neutral-400 text-xs">phase: {t.phase ?? '—'} · leader: {t.leader ?? '—'}</div>
+          <div className="text-neutral-400 text-xs">
+            phase: <EditableCell path={`themes.${name}.phase`} value={t.phase ?? 'horizontal'}
+                                 options={['horizontal', 'vertical', 'switching', 'exhausted']} />
+            {' · '}leader: {t.leader ?? '—'}
+          </div>
           <div className="text-neutral-500 text-xs">members: {(t.members ?? []).join(', ')}</div>
         </div>
       ))}
