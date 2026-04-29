@@ -32,5 +32,5 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "apps/api/tests"]
 markers = ["live: tests that need real network/LLM (skipped in CI)"]
