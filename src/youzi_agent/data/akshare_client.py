@@ -1,6 +1,7 @@
 """Single IO boundary — every node reads data through this client."""
 from __future__ import annotations
 
+import datetime as _dt
 import time
 from pathlib import Path
 from typing import Callable
@@ -121,3 +122,29 @@ class AkshareClient:
 
     def code_list(self, date: str) -> pd.DataFrame:
         return _retry(lambda: ak.stock_info_a_code_name())
+
+
+_default_client: AkshareClient | None = None
+
+
+def _client() -> AkshareClient:
+    global _default_client
+    if _default_client is None:
+        _default_client = AkshareClient()
+    return _default_client
+
+
+def get_kline(code: str, days: int = 60) -> pd.DataFrame:
+    """Module-level convenience wrapper around AkshareClient.stock_kline.
+
+    Returns a DataFrame with columns date/open/high/low/close/volume.
+    Uses today as end_date and lookback_days = max(days * 2, 60) to absorb
+    akshare's end-window slop. The caller can ``.tail(days)`` to trim.
+    """
+    end_date = _dt.date.today().isoformat()
+    df = _client().stock_kline(code, end_date=end_date, lookback_days=max(days * 2, 60))
+    rename = {"日期": "date", "开盘": "open", "收盘": "close",
+              "最高": "high", "最低": "low", "成交量": "volume"}
+    df = df.rename(columns=rename)
+    keep = ["date", "open", "high", "low", "close", "volume"]
+    return df[[c for c in keep if c in df.columns]].copy()
