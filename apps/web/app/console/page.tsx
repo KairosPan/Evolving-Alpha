@@ -8,10 +8,12 @@ import { DateNavigator } from '@/components/left-context/DateNavigator';
 import { SentimentSpark } from '@/components/left-context/SentimentSpark';
 import { LeaderDrawer } from '@/components/center-views/LeaderDrawer';
 import { ErrorBanner } from '@/components/shell/ErrorBanner';
+import { DataQualityBanner } from '@/components/shell/DataQualityBanner';
 
 export default function ConsolePage() {
   return (
     <>
+      <DataQualityBanner />
       <ErrorBanner />
       <ThreeColumnLayout
         top={<TopBar />}
