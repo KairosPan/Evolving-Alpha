@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .graph_runtime import GraphRuntime
 from .routes import run as run_routes
@@ -36,6 +39,13 @@ def build_app(checkpoint_path: str | None = None,
     )
     app.state.runs_dir = runs_dir or os.environ.get("YOUZI_RUNS_DIR", "runs")
     app.state.cache_dir = cache_dir or os.environ.get("YOUZI_CACHE_DIR", "data_cache")
+
+    # Mount Next.js static export at /. Registration order matters: API
+    # routes above are registered first so they take precedence over the
+    # catch-all static handler.
+    web_out = Path(__file__).resolve().parents[2] / "apps" / "web" / "out"
+    if web_out.exists():
+        app.mount("/", StaticFiles(directory=str(web_out), html=True), name="web")
     return app
 
 
