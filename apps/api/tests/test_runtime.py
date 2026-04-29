@@ -19,7 +19,7 @@ async def test_stream_yields_node_start_then_done_for_offline_run(tmp_path, monk
     tid = await rt.start(date="1970-01-01", use_llm=False, refresh=False)
 
     events = []
-    async for ev in rt.stream(tid):
+    async for n, ev in rt.stream(tid):
         events.append(ev)
         if len(events) > 200:
             pytest.fail("stream did not terminate")

@@ -17,7 +17,7 @@ async def test_interrupt_then_resume_completes(tmp_path):
 
     async def consume():
         nonlocal interrupted
-        async for ev in rt.stream(tid):
+        async for n, ev in rt.stream(tid):
             if ev["type"] == "interrupt":
                 interrupted = True
                 await rt.resume(tid, {"action": "approve", "patch": {}})

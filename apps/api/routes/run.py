@@ -28,9 +28,11 @@ async def get_stream(tid: str, request: Request):
     if tid not in rt._queues:
         raise HTTPException(status_code=404, detail="unknown thread_id")
 
+    last_id = int(request.headers.get("last-event-id", "0") or 0)
+
     async def gen():
-        async for ev in rt.stream(tid):
-            yield {"event": ev["type"], "data": json.dumps(ev, default=str)}
+        async for n, ev in rt.stream(tid, last_id=last_id):
+            yield {"id": str(n), "event": ev["type"], "data": json.dumps(ev, default=str)}
 
     return EventSourceResponse(gen())
 

@@ -31,6 +31,23 @@ class GraphRuntime:
         self._queues: dict[str, asyncio.Queue[RunEvent]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._resume_signals: dict[str, asyncio.Future] = {}
+        self._history: dict[str, list[tuple[int, RunEvent]]] = {}
+        self._event_seq: dict[str, int] = {}
+
+    def _record(self, tid: str, ev: RunEvent) -> int:
+        """Record event in history; return its sequence id.
+
+        Sync-only (dict updates). Safe to call from any thread for our
+        single-user case; if concurrent runs ever cause a race on
+        `_event_seq`, wrap with a `threading.Lock`.
+        """
+        n = self._event_seq.get(tid, 0) + 1
+        self._event_seq[tid] = n
+        hist = self._history.setdefault(tid, [])
+        hist.append((n, ev))
+        if len(hist) > 100:
+            del hist[0:len(hist) - 100]
+        return n
 
     async def start(self, *, date: str, use_llm: bool, refresh: bool) -> str:
         if refresh:
@@ -41,11 +58,19 @@ class GraphRuntime:
         self._tasks[tid] = asyncio.create_task(self._drive(tid, date, use_llm, refresh))
         return tid
 
-    async def stream(self, tid: str) -> AsyncIterator[RunEvent]:
+    async def stream(self, tid: str, last_id: int = 0) -> AsyncIterator[tuple[int, RunEvent]]:
+        # Replay history past last_id first
+        for n, ev in self._history.get(tid, []):
+            if n > last_id:
+                yield n, ev
+                if ev["type"] in _TERMINAL_TYPES:
+                    return
+        # Then live
         q = self._queues[tid]
         while True:
             ev = await q.get()
-            yield ev
+            n = self._event_seq.get(tid, 0)
+            yield n, ev
             if ev["type"] in _TERMINAL_TYPES:
                 break
 
@@ -88,7 +113,12 @@ class GraphRuntime:
         last_node: dict[str, str | None] = {"v": None}
 
         def _put_threadsafe(ev: RunEvent) -> None:
+            self._record(tid, ev)
             asyncio.run_coroutine_threadsafe(q.put(ev), loop).result()
+
+        async def _emit(ev: RunEvent) -> None:
+            self._record(tid, ev)
+            await q.put(ev)
 
         def _run_sync(initial: Any) -> dict | None:
             for chunk in self._graph.stream(initial, config=cfg, stream_mode="updates"):
@@ -118,7 +148,7 @@ class GraphRuntime:
                 if isinstance(interrupt_payload, dict):
                     node_name = interrupt_payload.get("node", "<unknown>")
                     snapshot = interrupt_payload.get("snapshot", {}) or {}
-                await q.put(InterruptEvent(
+                await _emit(InterruptEvent(
                     type="interrupt",
                     node=node_name,
                     snapshot=_jsonable(snapshot),
@@ -126,16 +156,20 @@ class GraphRuntime:
                 ))
                 fut = loop.create_future()
                 self._resume_signals[tid] = fut
-                review = await fut
+                try:
+                    review = await asyncio.wait_for(fut, timeout=30 * 60)
+                except asyncio.TimeoutError:
+                    review = {"action": "approve", "patch": {}, "_auto": True}
+                    self._resume_signals.pop(tid, None)
                 if isinstance(review, dict) and review.get("patch"):
                     self._graph.update_state(cfg, review["patch"])
                 cur_input = Command(resume=review)
             final = self._graph.get_state(cfg).values
-            await q.put(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
+            await _emit(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
         except Exception as e:
-            await q.put(NodeErrorEvent(type="node_error", node=last_node["v"] or "<run>",
+            await _emit(NodeErrorEvent(type="node_error", node=last_node["v"] or "<run>",
                                        ts=time.time(), message=str(e)))
-            await q.put(AbortedEvent(type="aborted", reason=str(e), ts=time.time()))
+            await _emit(AbortedEvent(type="aborted", reason=str(e), ts=time.time()))
 
     async def _drive(self, tid: str, date: str, use_llm: bool, refresh: bool) -> None:
         cfg = {"configurable": {"thread_id": tid}}
@@ -144,7 +178,12 @@ class GraphRuntime:
         last_node: dict[str, str | None] = {"v": None}
 
         def _put_threadsafe(ev: RunEvent) -> None:
+            self._record(tid, ev)
             asyncio.run_coroutine_threadsafe(q.put(ev), loop).result()
+
+        async def _emit(ev: RunEvent) -> None:
+            self._record(tid, ev)
+            await q.put(ev)
 
         def _run_sync(initial: Any) -> dict | None:
             """Run graph (or resume from checkpoint when `initial` is a Command)
@@ -170,7 +209,7 @@ class GraphRuntime:
             return None
 
         try:
-            await q.put(NodeStartEvent(type="node_start", node="<run>", ts=time.time()))
+            await _emit(NodeStartEvent(type="node_start", node="<run>", ts=time.time()))
             cur_input: Any = {"target_date": date, "use_llm": use_llm}
             while True:
                 interrupt_payload = await asyncio.to_thread(_run_sync, cur_input)
@@ -182,7 +221,7 @@ class GraphRuntime:
                 if isinstance(interrupt_payload, dict):
                     node_name = interrupt_payload.get("node", "<unknown>")
                     snapshot = interrupt_payload.get("snapshot", {}) or {}
-                await q.put(InterruptEvent(
+                await _emit(InterruptEvent(
                     type="interrupt",
                     node=node_name,
                     snapshot=_jsonable(snapshot),
@@ -190,18 +229,22 @@ class GraphRuntime:
                 ))
                 fut = loop.create_future()
                 self._resume_signals[tid] = fut
-                review = await fut
+                try:
+                    review = await asyncio.wait_for(fut, timeout=30 * 60)
+                except asyncio.TimeoutError:
+                    review = {"action": "approve", "patch": {}, "_auto": True}
+                    self._resume_signals.pop(tid, None)
                 # Optional explicit state patch on resume.
                 if isinstance(review, dict) and review.get("patch"):
                     self._graph.update_state(cfg, review["patch"])
                 # Deliver the review dict back to the suspended interrupt() call.
                 cur_input = Command(resume=review)
             final = self._graph.get_state(cfg).values
-            await q.put(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
+            await _emit(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
         except Exception as e:
-            await q.put(NodeErrorEvent(type="node_error", node=last_node["v"] or "<run>",
+            await _emit(NodeErrorEvent(type="node_error", node=last_node["v"] or "<run>",
                                        ts=time.time(), message=str(e)))
-            await q.put(AbortedEvent(type="aborted", reason=str(e), ts=time.time()))
+            await _emit(AbortedEvent(type="aborted", reason=str(e), ts=time.time()))
 
 
 def _jsonable(obj: Any) -> Any:

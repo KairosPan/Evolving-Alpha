@@ -7,10 +7,12 @@ import { CenterRouter } from '@/components/center-views/CenterRouter';
 import { DateNavigator } from '@/components/left-context/DateNavigator';
 import { SentimentSpark } from '@/components/left-context/SentimentSpark';
 import { LeaderDrawer } from '@/components/center-views/LeaderDrawer';
+import { ErrorBanner } from '@/components/shell/ErrorBanner';
 
 export default function ConsolePage() {
   return (
     <>
+      <ErrorBanner />
       <ThreeColumnLayout
         top={<TopBar />}
         left={(<><SentimentSpark /><div className="mt-3"><DateNavigator /></div></>)}
