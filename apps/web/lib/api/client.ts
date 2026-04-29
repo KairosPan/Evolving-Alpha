@@ -30,3 +30,13 @@ export async function getStateByTid(tid: string): Promise<Record<string, unknown
   if (!r.ok) throw new Error(`GET /api/state/${tid}`);
   return r.json();
 }
+
+export async function resumeRun(tid: string, body: { action?: 'approve' | 'edit' | 'abort'; patch?: Record<string, unknown> }) {
+  const r = await fetch(`${BASE}/api/run/${tid}/resume`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: body.action ?? 'approve', patch: body.patch ?? {} }),
+  });
+  if (!r.ok) throw new Error(`resume failed: ${r.status}`);
+  return r.json();
+}
