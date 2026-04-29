@@ -42,23 +42,35 @@ class GraphRuntime:
     async def _drive(self, tid: str, date: str, use_llm: bool, refresh: bool) -> None:
         cfg = {"configurable": {"thread_id": tid}}
         q = self._queues[tid]
+        loop = asyncio.get_running_loop()
         last_node: str | None = None
-        try:
-            await q.put(NodeStartEvent(type="node_start", node="<run>", ts=time.time()))
-            async for chunk in self._graph.astream(
+
+        def _put_threadsafe(ev: RunEvent) -> None:
+            asyncio.run_coroutine_threadsafe(q.put(ev), loop).result()
+
+        def _run_sync() -> None:
+            nonlocal last_node
+            # SqliteSaver is sync-only; use sync `.stream()` in a thread so the
+            # checkpointer commits state. Bridge events back via the asyncio
+            # queue with run_coroutine_threadsafe.
+            for chunk in self._graph.stream(
                 {"target_date": date, "use_llm": use_llm},
                 config=cfg,
                 stream_mode="updates",
             ):
-                # `chunk` is {node_name: state_patch} for stream_mode="updates"
                 for node, patch in chunk.items():
                     if last_node != node:
-                        await q.put(NodeStartEvent(type="node_start", node=node, ts=time.time()))
+                        _put_threadsafe(NodeStartEvent(
+                            type="node_start", node=node, ts=time.time()))
                         last_node = node
-                    await q.put(NodeEndEvent(
+                    _put_threadsafe(NodeEndEvent(
                         type="node_end", node=node, ts=time.time(),
                         state_patch=_jsonable(patch),
                     ))
+
+        try:
+            await q.put(NodeStartEvent(type="node_start", node="<run>", ts=time.time()))
+            await asyncio.to_thread(_run_sync)
             final = self._graph.get_state(cfg).values
             await q.put(DoneEvent(type="done", final_state=_jsonable(final), ts=time.time()))
         except Exception as e:
