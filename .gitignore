@@ -16,4 +16,4 @@ dist/
 apps/web/node_modules/
 apps/web/.next/
 apps/web/out/
-apps/web/lib/api/types.gen.ts
+apps/web/tsconfig.tsbuildinfo
