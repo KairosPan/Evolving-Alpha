@@ -1,4 +1,4 @@
-"""Run lifecycle: POST /run, GET /run/{tid}/stream."""
+"""Run lifecycle: POST /run, GET /run/{tid}/stream, POST /run/{tid}/{resume,abort}."""
 from __future__ import annotations
 
 import json
@@ -33,3 +33,26 @@ async def get_stream(tid: str, request: Request):
             yield {"event": ev["type"], "data": json.dumps(ev, default=str)}
 
     return EventSourceResponse(gen())
+
+
+class ResumeBody(BaseModel):
+    node: str | None = None
+    action: str = "approve"
+    patch: dict | None = None
+
+
+@router.post("/run/{tid}/resume")
+async def post_resume(tid: str, body: ResumeBody, request: Request) -> dict:
+    rt = request.app.state.runtime
+    await rt.resume(tid, {"action": body.action, "patch": body.patch or {}})
+    return {"ok": True}
+
+
+@router.post("/run/{tid}/abort")
+async def post_abort(tid: str, request: Request) -> dict:
+    rt = request.app.state.runtime
+    try:
+        await rt.resume(tid, {"action": "abort", "patch": {}})
+    except RuntimeError:
+        pass  # nothing pending — silently ok
+    return {"ok": True}

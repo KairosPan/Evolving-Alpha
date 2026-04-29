@@ -33,4 +33,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "apps/api/tests"]
-markers = ["live: tests that need real network/LLM (skipped in CI)"]
+markers = [
+    "live: tests that need real network/LLM (skipped in CI)",
+    "no_auto_resume: opt out of YOUZI_AUTO_RESUME=1 autouse env",
+]
