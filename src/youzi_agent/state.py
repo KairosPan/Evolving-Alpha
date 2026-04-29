@@ -91,6 +91,7 @@ class MarketState(TypedDict, total=False):
     arb_opportunities: Annotated[list[Candidate], add]
     risk_flags: Annotated[list[str], add]
     plan: Optional[TradePlan]
+    position_total_max_override: float
 
     review: Optional[dict]
     errors: Annotated[list[str], add]

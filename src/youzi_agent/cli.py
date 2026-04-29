@@ -35,6 +35,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
+    os.environ["YOUZI_AUTO_RESUME"] = "1"
     args = _build_parser().parse_args(argv)
     date = args.date or _default_date()
     if args.refresh:

@@ -1,8 +1,11 @@
 """10-rule risk filter; outputs final_candidates (replace semantics)."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
+
+from langgraph.types import interrupt
 
 from ..state import Candidate, MarketState
 
@@ -80,7 +83,27 @@ def risk_guard_node(state: MarketState) -> dict:
         if kept:
             survivors.append(c)
     survivors.sort(key=lambda c: -float(c.get("score", 0)))
-    return {
+    result: dict = {
         "final_candidates": survivors,
         "risk_flags": flags,
     }
+    if not os.environ.get("YOUZI_AUTO_RESUME"):
+        advisory_cap = _zone_total_max(
+            state.get("emotion_phase", "warming"),
+            state.get("index_phase", "oscillation"),
+        )
+        review = interrupt({
+            "node": "risk_guard",
+            "snapshot": {
+                "risk_flags": flags,
+                "candidates": [{"code": c["code"], "name": c.get("name", "")} for c in survivors],
+                "plan_position_cap": advisory_cap,
+            },
+        })
+        if isinstance(review, dict):
+            if "risk_flags" in review:
+                result["risk_flags"] = review["risk_flags"]
+            if "position_total_max" in review:
+                # propagate user override to state for trade_planner to consume
+                result["position_total_max_override"] = float(review["position_total_max"])
+    return result

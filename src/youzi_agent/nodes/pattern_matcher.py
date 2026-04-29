@@ -1,6 +1,10 @@
 """Truth-table routing + optional LLM tiebreaker for emotion_phase."""
 from __future__ import annotations
 
+import os
+
+from langgraph.types import interrupt
+
 from ..llm.deepseek import get_llm
 from ..llm.schemas import PatternEdgeOut
 from ..state import MarketState, PatternHit
@@ -105,4 +109,17 @@ def pattern_matcher_node(state: MarketState) -> dict:
          "target_subagent": PATTERN_TO_SUBAGENT[pid]}
         for pid in pattern_ids if pid in PATTERN_TO_SUBAGENT
     ]
-    return {"pattern_hits": hits, **state_patch}
+    result = {"pattern_hits": hits, **state_patch}
+    if not os.environ.get("YOUZI_AUTO_RESUME"):
+        review = interrupt({
+            "node": "pattern_matcher",
+            "snapshot": {
+                "pattern_hits": hits,
+                "emotion_phase": emotion,
+                "succession_status": succession,
+                "index_phase": index_phase,
+            },
+        })
+        if isinstance(review, dict) and "pattern_hits" in review:
+            result["pattern_hits"] = review["pattern_hits"]
+    return result
