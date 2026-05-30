@@ -19,7 +19,7 @@ class MetaTools:
 
     def __init__(self, harness: HarnessState, log: EditLog | None = None) -> None:
         self.h = harness
-        self.log = log or EditLog()
+        self.log = log if log is not None else EditLog()
 
     # ── K 技能 ──
     def write_skill(self, skill: Skill) -> EditRecord:
