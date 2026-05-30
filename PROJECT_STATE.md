@@ -44,10 +44,11 @@
 - 模块:`schemas/market.py`(frozen MarketState/EchelonRung)· `replay/firewall.py`(AsOfGuard/LookaheadError)· `data/source.py`(MarketDataSource 协议+AkshareSource+GuardedSource)· `data/{calendar,cache}.py`(PITStore)· `features/{echelon,blowup,money_effect,sentiment,builder}.py` · `replay/engine.py`(ReplayEngine:cursor/observe/step/reset_to,reset-free)。
 - 测试离线(FakeSource);akshare 仅由手动脚本 `scripts/smoke_akshare.py <YYYYMMDD>` 触网。
 
-### Phase-0b 待办
-1. 种子注册表:把轮回 playbook 抽成 K(模式/特征技能)/M(复盘教训+历史类比+失败签名)/p(doctrine)结构化种子。
-2. Hmin / Hexpert 基线 + 评测脚手架(对应蓝图 §6.9)。
-3. 龙虎榜 / 题材线(concept 成分)特征 + 仓位/组合层雏形。
+### Phase-0b 进行中
+- **种子知识库 v1 已抽取并入 main** → `seeds/{skills,memory,doctrine,state_machine}.json`(57技能/21记忆/22doctrine(10纪律红线)/7相位;`seeds/README.md` 有 schema+相位归一词表+v1 缺口)。
+- **Phase-0b-1 计划已写**(`docs/superpowers/plans/2026-05-30-phase0b1-harness-state-models-loader.md`):Harness 状态模型 + 种子载入器(`youzi/harness/`:regime 归一 / Skill+decay 统计 / Lesson / Doctrine / 状态机 / registry / store / HarnessState / loader),只读载入+查询,载入真实 seeds 做集成测试。
+- **Phase-0b-2(待写)**:CRUD meta-tools(write/patch/retire→dormant/revive/process_memory/rewrite_doctrine)+ immutable-core 写保护 + 版本化快照/回滚 + 编辑审计。
+- 之后:Hmin/Hexpert 基线 + 评测脚手架(蓝图 §6.9);龙虎榜/题材线特征;仓位/组合层雏形。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
 - **PITStore 尚未接入取数路径**:应作为 read-through/write-through 插进 `GuardedSource` 内层(guard 仍在外把关日期),实现"边跑边快照"PIT 累积;docstring 的"写一次不被未来修订覆盖"目前只是注释、无强制。
