@@ -10,20 +10,21 @@ class EditRecord(BaseModel):
     tool: str                # write_skill / patch_skill / ... / rewrite_doctrine
     target_kind: str         # skill | memory | doctrine
     target_id: str           # skill_id / lesson_id / section
-    op: str                  # create | update | retire | dormant | revive | promote | demote | rewrite
+    op: str                  # create | update | retire | revive | promote | demote | rewrite
     summary: str = ""
+    payload: dict | None = None   # old→new 等结构化负载,为 0b-3 回滚预留
 
 
 class EditLog:
-    """单调递增的编辑审计日志(Δ 轨迹);为 Phase-0b-3 版本化/回滚铺路。"""
+    """编辑审计 Δ 轨迹(append-only);EditRecord 可带 payload(old→new 等),为 Phase-0b-3 版本化/回滚预留。"""
 
     def __init__(self) -> None:
         self._records: list[EditRecord] = []
 
     def append(self, tool: str, target_kind: str, target_id: str,
-               op: str, summary: str = "") -> EditRecord:
+               op: str, summary: str = "", payload: dict | None = None) -> EditRecord:
         rec = EditRecord(seq=len(self._records), tool=tool, target_kind=target_kind,
-                         target_id=target_id, op=op, summary=summary)
+                         target_id=target_id, op=op, summary=summary, payload=payload)
         self._records.append(rec)
         return rec
 

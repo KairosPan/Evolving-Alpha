@@ -1,3 +1,5 @@
+import pytest
+
 from youzi.harness.skill import Skill
 from youzi.harness.registry import SkillRegistry
 from youzi.harness.memory_item import Lesson
@@ -6,6 +8,7 @@ from youzi.harness.doctrine import Doctrine, DoctrineEntry
 from youzi.harness.cycle import StateMachine
 from youzi.harness.harness import HarnessState
 from youzi.harness.metatools import MetaTools
+from youzi.harness.errors import ImmutableDoctrineError
 
 
 def _harness():
@@ -36,22 +39,22 @@ def test_metatools_edits_and_logs():
     mt.patch_skill("a", notes="备注")
     mt.process_memory(Lesson.from_seed({"lesson_id": "l2", "regime": "主升",
                                         "outcome": "win", "lesson": "新"}))
+    mt.update_memory("l1", lesson="改写教训")
     mt.demote_memory("l1", 0.5)
     mt.rewrite_doctrine("主升作战", "新指导")
     h = mt.h
     assert h.skills.get("a").status == "active" and h.skills.get("a").notes == "备注"
     assert h.skills.get("b") is not None
     assert h.memory.get("l2") is not None
+    assert h.memory.get("l1").lesson == "改写教训"
     assert abs(h.memory.get("l1").importance.time_decay - 0.5) < 1e-9
     assert h.doctrine.get("主升作战").guidance == "新指导"
-    # 审计:8 条编辑,且每条都有 seq/tool/target
-    assert len(mt.log) == 8
+    # 审计:9 条编辑,且每条都有 seq/tool/target
+    assert len(mt.log) == 9
     assert [r.tool for r in mt.log.by_kind("skill")][0] == "write_skill"
 
 
 def test_metatools_rewrite_immutable_rejected_and_not_logged():
-    import pytest
-    from youzi.harness.errors import ImmutableDoctrineError
     mt = MetaTools(_harness())
     with pytest.raises(ImmutableDoctrineError):
         mt.rewrite_doctrine("纪律:退潮不接力", "篡改")

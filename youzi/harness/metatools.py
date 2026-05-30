@@ -10,6 +10,7 @@ class MetaTools:
     """论文 meta-tool API:Agent/Refiner 通过它就地编辑 H=(p,K,M)。
 
     每个方法先执行编辑(失败则抛错、不记日志),成功后追加一条 EditRecord。
+    调用方应只经 MetaTools 方法编辑,不要直接改 self.h / self.log,否则绕过审计。
     """
 
     def __init__(self, harness: HarnessState, log: EditLog | None = None) -> None:
@@ -23,12 +24,14 @@ class MetaTools:
 
     def patch_skill(self, skill_id: str, **fields) -> EditRecord:
         self.h.skills.patch(skill_id, **fields)
-        return self.log.append("patch_skill", "skill", skill_id, "update", ",".join(fields))
+        return self.log.append("patch_skill", "skill", skill_id, "update",
+                               ",".join(f"{k}={v}" for k, v in fields.items()),
+                               payload={"fields": fields})
 
     def retire_skill(self, skill_id: str, permanent: bool = False) -> EditRecord:
         self.h.skills.retire(skill_id, permanent=permanent)
-        return self.log.append("retire_skill", "skill", skill_id,
-                               "retired" if permanent else "dormant")
+        return self.log.append("retire_skill", "skill", skill_id, "retire",
+                               "permanent" if permanent else "dormant")
 
     def revive_skill(self, skill_id: str) -> EditRecord:
         self.h.skills.revive(skill_id)
@@ -46,14 +49,18 @@ class MetaTools:
 
     def update_memory(self, lesson_id: str, **fields) -> EditRecord:
         self.h.memory.update(lesson_id, **fields)
-        return self.log.append("process_memory", "memory", lesson_id, "update",
-                               ",".join(fields))
+        return self.log.append("update_memory", "memory", lesson_id, "update",
+                               ",".join(fields), payload={"fields": fields})
 
     def demote_memory(self, lesson_id: str, factor: float) -> EditRecord:
         self.h.memory.demote(lesson_id, factor)
-        return self.log.append("process_memory", "memory", lesson_id, "demote", str(factor))
+        return self.log.append("demote_memory", "memory", lesson_id, "demote", str(factor),
+                               payload={"factor": factor})
 
     # ── p doctrine ──
     def rewrite_doctrine(self, section: str, new_guidance: str) -> EditRecord:
+        old = self.h.doctrine.get(section)
+        old_guidance = old.guidance if old is not None else None
         self.h.doctrine.rewrite(section, new_guidance)   # immutable -> 抛错, 不记日志
-        return self.log.append("rewrite_doctrine", "doctrine", section, "rewrite")
+        return self.log.append("rewrite_doctrine", "doctrine", section, "rewrite",
+                               payload={"old": old_guidance, "new": new_guidance})
