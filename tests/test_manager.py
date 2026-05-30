@@ -40,3 +40,12 @@ def test_checkpoint_then_edit_then_rollback(tmp_path):
     # tools 已重绑到还原后的 H:继续编辑作用在还原态上
     mgr.tools.retire_skill("a")
     assert mgr.harness.skills.get("a").status == "dormant"
+
+
+def test_manager_shares_passed_empty_log(tmp_path):
+    from youzi.harness.edit_log import EditLog
+    shared = EditLog()
+    mgr = HarnessManager(_h(), SnapshotStore(tmp_path), log=shared)
+    assert mgr.log is shared                 # 共享同一对象, 不被空 log 的 falsy 旁路替换
+    mgr.tools.retire_skill("a")
+    assert len(shared) == 1                   # 编辑记到了调用方传入的 log

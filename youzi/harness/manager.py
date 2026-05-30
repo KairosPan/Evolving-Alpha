@@ -15,7 +15,7 @@ class HarnessManager:
     def __init__(self, harness: HarnessState, store: SnapshotStore,
                  log: EditLog | None = None) -> None:
         self.harness = harness
-        self.log = log or EditLog()
+        self.log = log if log is not None else EditLog()
         self.store = store
         self.tools = MetaTools(self.harness, self.log)
 
