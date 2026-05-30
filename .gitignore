@@ -1,0 +1,20 @@
+# macOS junk
+.DS_Store
+._*
+
+# Claude Code local settings (keep shared config, ignore personal/local)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data / model artifacts (大文件与生成物,避免污染版本库)
+data/
+*.parquet
+*.feather
+checkpoints/
+*.ckpt
+*.safetensors
