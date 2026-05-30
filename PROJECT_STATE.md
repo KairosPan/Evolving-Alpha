@@ -47,8 +47,8 @@
 ### Phase-0b 进行中
 - **种子知识库 v1 已抽取并入 main** → `seeds/{skills,memory,doctrine,state_machine}.json`(57技能/21记忆/22doctrine(10纪律红线)/7相位;`seeds/README.md` 有 schema+相位归一词表+v1 缺口)。
 - **Phase-0b-1 已完成并入 main**(`youzi/harness/`:regime 归一 / Skill+decay 统计 / Lesson+双衰减 / Doctrine(immutable核)/ 状态机 / registry / store / HarnessState / loader):只读载入+查询,**载入真实 seeds 集成测试通过**(57/21/22/7,10纪律红线,全部相位归一干净);61 测试绿,subagent-driven 两段评审+终审 READY。
-- **Phase-0b-2(待写)**:CRUD meta-tools(write/patch/retire→dormant/revive/process_memory/rewrite_doctrine)+ immutable-core 写保护 + 版本化快照/回滚 + 编辑审计。
-  - **⚠ 终审记录的 P0 决策**:多 regime 记忆/doctrine 表示。当前 `Lesson.regime`/`DoctrineEntry.regime` 为单值,`normalize_regime` 把多 regime token(如 `主升/退潮`、`次新生态/超跌生态`)折叠成单相位 → **11/21 条记忆 `for_regime` 漏检**(governs 退潮 的教训查不到)。0b-2 随 M CRUD 改为 `regimes: list[str]`(用 `split_regimes`),`for_regime` 改成员匹配 + 补 round-trip 测试。
+- **Phase-0b-2 计划已写**(`docs/superpowers/plans/2026-05-30-phase0b2-metatools-crud.md`):可编辑 Harness——CRUD meta-tools(write/patch/retire→dormant/revive/promote/process_memory/rewrite_doctrine)+ **immutable-core 写保护** + 技能生命周期(dormant 轮回复活)+ **编辑审计 Δ 轨迹**(EditLog)+ **P0 多 regime 修复**(Lesson/DoctrineEntry.regime 单值→phases/ecologies/applies_all,for_regime 成员匹配)。集成测试载入真实 seeds 跑编辑序列+写保护。
+- **Phase-0b-3(待写)**:版本化磁盘持久化/快照/回滚/diff(独立持久化子系统);G 子 Agent 留待 Phase-1。
 - 之后:Hmin/Hexpert 基线 + 评测脚手架(蓝图 §6.9);龙虎榜/题材线特征;仓位/组合层雏形。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
