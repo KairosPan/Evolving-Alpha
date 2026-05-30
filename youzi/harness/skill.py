@@ -33,7 +33,7 @@ class SkillStats(BaseModel):
 
 class Skill(BaseModel):
     """K 技能(可变 harness 状态;Refiner 后续编辑)。"""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
     skill_id: str
     name_cn: str
     type: SkillType

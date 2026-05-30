@@ -32,3 +32,51 @@ def test_registry_queries():
     assert {s.skill_id for s in reg.by_type("pattern")} == {"a", "c"}
     assert {s.skill_id for s in reg.by_ecology("连板生态")} == {"a"}
     assert len(reg) == 3
+
+
+# --- Task 6 CRUD + 生命周期 ---
+from youzi.harness.errors import InvalidTransitionError
+
+
+def _one():
+    return Skill.from_seed({"skill_id": "a", "name_cn": "甲", "type": "pattern",
+                            "applicable_regime": ["主升"], "trigger": "t",
+                            "entry": "e", "exit_stop": "x", "status": "active"})
+
+
+def test_registry_write_and_reject_dup():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])
+    new = Skill.from_seed({"skill_id": "z", "name_cn": "新", "type": "pattern",
+                           "applicable_regime": ["退潮"], "trigger": "t",
+                           "entry": "e", "exit_stop": "x", "status": "incubating"})
+    reg.write(new)
+    assert reg.get("z").name_cn == "新"
+    with pytest.raises(ValueError):
+        reg.write(_one())            # 重复 id
+
+
+def test_registry_patch_validates():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])
+    reg.patch("a", notes="改了备注", status="dormant")
+    assert reg.get("a").notes == "改了备注" and reg.get("a").status == "dormant"
+    with pytest.raises(Exception):       # validate_assignment 拒绝非法值
+        reg.patch("a", status="不存在的状态")
+    with pytest.raises(KeyError):
+        reg.patch("没有", notes="x")
+
+
+def test_registry_lifecycle_retire_revive_promote():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])
+    reg.retire("a")                       # active -> dormant(默认)
+    assert reg.get("a").status == "dormant"
+    reg.revive("a")                       # dormant -> incubating
+    assert reg.get("a").status == "incubating"
+    reg.promote("a")                      # incubating -> active
+    assert reg.get("a").status == "active"
+    reg.retire("a", permanent=True)       # -> retired(永久)
+    assert reg.get("a").status == "retired"
+    with pytest.raises(InvalidTransitionError):
+        reg.revive("a")                   # retired 不能 revive(非 dormant)

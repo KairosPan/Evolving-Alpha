@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from youzi.harness.errors import InvalidTransitionError
 from youzi.harness.skill import Skill
 
 
@@ -7,7 +8,7 @@ class SkillRegistry:
     """技能库 K(按 id 索引)。Phase-0b-1 只读/查询;CRUD 编辑见 Phase-0b-2。"""
 
     def __init__(self, skills: dict[str, Skill]) -> None:
-        self._skills = skills
+        self._skills = dict(skills)          # 防御性拷贝
 
     @classmethod
     def from_skills(cls, skills: list[Skill]) -> "SkillRegistry":
@@ -38,3 +39,44 @@ class SkillRegistry:
 
     def __len__(self) -> int:
         return len(self._skills)
+
+    # ── CRUD + 生命周期 ──────────────────────────────────────────────────
+
+    def _require(self, skill_id: str) -> Skill:
+        s = self._skills.get(skill_id)
+        if s is None:
+            raise KeyError(f"无此 skill_id: {skill_id}")
+        return s
+
+    def write(self, skill: Skill) -> None:
+        if skill.skill_id in self._skills:
+            raise ValueError(f"重复 skill_id: {skill.skill_id}")
+        self._skills[skill.skill_id] = skill
+
+    def patch(self, skill_id: str, **fields) -> Skill:
+        s = self._require(skill_id)
+        for k, v in fields.items():
+            setattr(s, k, v)                 # validate_assignment 走校验
+        return s
+
+    def retire(self, skill_id: str, permanent: bool = False) -> Skill:
+        """退役:默认 -> dormant(保指纹待轮回复活);permanent -> retired。"""
+        s = self._require(skill_id)
+        s.status = "retired" if permanent else "dormant"
+        return s
+
+    def revive(self, skill_id: str) -> Skill:
+        """复活:仅允许 dormant -> incubating。"""
+        s = self._require(skill_id)
+        if s.status != "dormant":
+            raise InvalidTransitionError(f"{skill_id} 非 dormant(当前 {s.status}),不能 revive")
+        s.status = "incubating"
+        return s
+
+    def promote(self, skill_id: str) -> Skill:
+        """晋升:仅允许 incubating -> active。"""
+        s = self._require(skill_id)
+        if s.status != "incubating":
+            raise InvalidTransitionError(f"{skill_id} 非 incubating(当前 {s.status}),不能 promote")
+        s.status = "active"
+        return s
