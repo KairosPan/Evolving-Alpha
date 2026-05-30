@@ -47,3 +47,25 @@ def test_engine_observe_is_firewalled():
     # 直接越过游标取未来数据 -> 拦截
     with pytest.raises(LookaheadError):
         eng.guarded_source.zt_pool(days[1])
+
+
+def test_reset_to_trims_history_and_blocks_future():
+    days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
+    eng = ReplayEngine(_src(days), start=days[0], end=days[-1])
+    eng.observe(); eng.step(); eng.observe(); eng.step(); eng.observe()
+    assert len(eng.history) == 3
+    eng.reset_to(days[1])
+    assert len(eng.history) == 1          # 修剪为严格过去(仅 day0)
+    assert eng._recorded == {0}
+    st = eng.observe()
+    assert st.date == days[1]
+    assert len(eng.history) == 2          # day1 重新记入一次
+    with pytest.raises(LookaheadError):
+        eng.guarded_source.zt_pool(days[2])   # 未来仍被拦截
+
+
+def test_reset_to_rejects_out_of_range():
+    days = [date(2024, 6, 26), date(2024, 6, 27)]
+    eng = ReplayEngine(_src(days), start=days[0], end=days[-1])
+    with pytest.raises(ValueError):
+        eng.reset_to(date(2024, 7, 1))

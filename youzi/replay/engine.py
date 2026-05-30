@@ -17,8 +17,9 @@ class ReplayEngine:
         if not self._days:
             raise ValueError("回放区间内没有交易日")
         self._i = 0
+        self._source = source               # 原始源:reset_to 不必探入 GuardedSource._inner
         self._guard = AsOfGuard(self._days[0])
-        self.guarded_source = GuardedSource(source, self._guard)
+        self.guarded_source = GuardedSource(self._source, self._guard)
         self.history: list[float] = []      # 已走过日的 sentiment_raw
         self._recorded: set[int] = set()    # 已入 history 的游标索引(幂等)
 
@@ -48,10 +49,12 @@ class ReplayEngine:
 
     def reset_to(self, day: Date) -> None:
         """显式跳转(回放 seam),非自动;仅允许跳到区间内交易日。"""
-        if day not in self._days:
-            raise ValueError(f"{day} 不在回放交易日内")
-        self._i = self._days.index(day)
+        try:
+            self._i = self._days.index(day)
+        except ValueError:
+            raise ValueError(f"{day} 不在回放交易日内") from None
         self._guard = AsOfGuard(day)
-        self.guarded_source = GuardedSource(
-            self.guarded_source._inner, self._guard)  # 重新包裹同一内层源
-        # _recorded 保留:已记录的游标索引不重置,避免重访时重复计入 history
+        self.guarded_source = GuardedSource(self._source, self._guard)
+        # history[k] 对应 _days[k];回跳后只保留严格过去,杜绝未来数据经 history 侧信道泄漏
+        self.history = self.history[: self._i]
+        self._recorded = {j for j in self._recorded if j < self._i}
