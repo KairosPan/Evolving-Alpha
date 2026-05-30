@@ -6,6 +6,10 @@ from youzi.harness.memory_item import Lesson
 from youzi.harness.skill import Skill
 
 
+def _jsonable(v: object) -> object:
+    return v.model_dump() if hasattr(v, "model_dump") else v
+
+
 class MetaTools:
     """论文 meta-tool API:Agent/Refiner 通过它就地编辑 H=(p,K,M)。
 
@@ -24,11 +28,12 @@ class MetaTools:
 
     def patch_skill(self, skill_id: str, **fields) -> EditRecord:
         s = self.h.skills.get(skill_id)
-        before = {k: getattr(s, k) for k in fields if s is not None and k in type(s).model_fields}
+        before = {k: _jsonable(getattr(s, k)) for k in fields if s is not None and k in type(s).model_fields}
         self.h.skills.patch(skill_id, **fields)
+        after = {k: _jsonable(v) for k, v in fields.items()}
         return self.log.append("patch_skill", "skill", skill_id, "update",
                                ",".join(f"{k}={v}" for k, v in fields.items()),
-                               payload={"before": before, "after": fields})
+                               payload={"before": before, "after": after})
 
     def retire_skill(self, skill_id: str, permanent: bool = False) -> EditRecord:
         s = self.h.skills.get(skill_id)
@@ -59,15 +64,17 @@ class MetaTools:
                                lesson.lesson[:24])
 
     def update_memory(self, lesson_id: str, **fields) -> EditRecord:
-        l = self.h.memory.get(lesson_id)
-        before = {k: getattr(l, k) for k in fields if l is not None and k in type(l).model_fields}
+        lesson = self.h.memory.get(lesson_id)
+        before = {k: _jsonable(getattr(lesson, k)) for k in fields
+                  if lesson is not None and k in type(lesson).model_fields}
         self.h.memory.update(lesson_id, **fields)
+        after = {k: _jsonable(v) for k, v in fields.items()}
         return self.log.append("update_memory", "memory", lesson_id, "update",
-                               ",".join(fields), payload={"before": before, "after": fields})
+                               ",".join(fields), payload={"before": before, "after": after})
 
     def demote_memory(self, lesson_id: str, factor: float) -> EditRecord:
-        l = self.h.memory.get(lesson_id)
-        before_td = l.importance.time_decay if l is not None else None
+        lesson = self.h.memory.get(lesson_id)
+        before_td = lesson.importance.time_decay if lesson is not None else None
         self.h.memory.demote(lesson_id, factor)
         return self.log.append("demote_memory", "memory", lesson_id, "demote", str(factor),
                                payload={"before_time_decay": before_td, "factor": factor})
