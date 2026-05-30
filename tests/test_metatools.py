@@ -59,3 +59,18 @@ def test_metatools_rewrite_immutable_rejected_and_not_logged():
     with pytest.raises(ImmutableDoctrineError):
         mt.rewrite_doctrine("纪律:退潮不接力", "篡改")
     assert len(mt.log) == 0                       # 被拒的编辑不入审计
+
+
+def test_metatools_payload_has_before_after():
+    mt = MetaTools(_harness())
+    mt.patch_skill("a", notes="新备注")
+    rec = mt.log.records()[-1]
+    assert rec.payload["before"] == {"notes": ""} and rec.payload["after"] == {"notes": "新备注"}
+
+    mt.retire_skill("a")
+    rec = mt.log.records()[-1]
+    assert rec.payload == {"before": "active", "after": "dormant"}
+
+    mt.demote_memory("l1", 0.5)
+    rec = mt.log.records()[-1]
+    assert rec.payload["factor"] == 0.5 and "before_time_decay" in rec.payload

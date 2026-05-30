@@ -23,23 +23,34 @@ class MetaTools:
         return self.log.append("write_skill", "skill", skill.skill_id, "create", skill.name_cn)
 
     def patch_skill(self, skill_id: str, **fields) -> EditRecord:
+        s = self.h.skills.get(skill_id)
+        before = {k: getattr(s, k) for k in fields if s is not None and k in type(s).model_fields}
         self.h.skills.patch(skill_id, **fields)
         return self.log.append("patch_skill", "skill", skill_id, "update",
                                ",".join(f"{k}={v}" for k, v in fields.items()),
-                               payload={"fields": fields})
+                               payload={"before": before, "after": fields})
 
     def retire_skill(self, skill_id: str, permanent: bool = False) -> EditRecord:
+        s = self.h.skills.get(skill_id)
+        before = s.status if s is not None else None
         self.h.skills.retire(skill_id, permanent=permanent)
-        return self.log.append("retire_skill", "skill", skill_id, "retire",
-                               "permanent" if permanent else "dormant")
+        after = "retired" if permanent else "dormant"
+        return self.log.append("retire_skill", "skill", skill_id, "retire", after,
+                               payload={"before": before, "after": after})
 
     def revive_skill(self, skill_id: str) -> EditRecord:
+        s = self.h.skills.get(skill_id)
+        before = s.status if s is not None else None
         self.h.skills.revive(skill_id)
-        return self.log.append("revive_skill", "skill", skill_id, "revive")
+        return self.log.append("revive_skill", "skill", skill_id, "revive", "",
+                               payload={"before": before, "after": "incubating"})
 
     def promote_skill(self, skill_id: str) -> EditRecord:
+        s = self.h.skills.get(skill_id)
+        before = s.status if s is not None else None
         self.h.skills.promote(skill_id)
-        return self.log.append("promote_skill", "skill", skill_id, "promote")
+        return self.log.append("promote_skill", "skill", skill_id, "promote", "",
+                               payload={"before": before, "after": "active"})
 
     # ── M 记忆 ──
     def process_memory(self, lesson: Lesson) -> EditRecord:
@@ -48,14 +59,18 @@ class MetaTools:
                                lesson.lesson[:24])
 
     def update_memory(self, lesson_id: str, **fields) -> EditRecord:
+        l = self.h.memory.get(lesson_id)
+        before = {k: getattr(l, k) for k in fields if l is not None and k in type(l).model_fields}
         self.h.memory.update(lesson_id, **fields)
         return self.log.append("update_memory", "memory", lesson_id, "update",
-                               ",".join(fields), payload={"fields": fields})
+                               ",".join(fields), payload={"before": before, "after": fields})
 
     def demote_memory(self, lesson_id: str, factor: float) -> EditRecord:
+        l = self.h.memory.get(lesson_id)
+        before_td = l.importance.time_decay if l is not None else None
         self.h.memory.demote(lesson_id, factor)
         return self.log.append("demote_memory", "memory", lesson_id, "demote", str(factor),
-                               payload={"factor": factor})
+                               payload={"before_time_decay": before_td, "factor": factor})
 
     # ── p doctrine ──
     def rewrite_doctrine(self, section: str, new_guidance: str) -> EditRecord:
