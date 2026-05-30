@@ -12,10 +12,10 @@ class MemoryStore:
     @classmethod
     def from_lessons(cls, lessons: list[Lesson]) -> "MemoryStore":
         index: dict[str, Lesson] = {}
-        for l in lessons:
-            if l.lesson_id in index:
-                raise ValueError(f"重复 lesson_id: {l.lesson_id}")
-            index[l.lesson_id] = l
+        for lesson in lessons:
+            if lesson.lesson_id in index:
+                raise ValueError(f"重复 lesson_id: {lesson.lesson_id}")
+            index[lesson.lesson_id] = lesson
         return cls(index)
 
     def get(self, lesson_id: str) -> Lesson | None:
@@ -25,13 +25,18 @@ class MemoryStore:
         return list(self._lessons.values())
 
     def by_regime(self, regime: str) -> list[Lesson]:
-        return [l for l in self._lessons.values() if l.regime == regime]
+        return [lesson for lesson in self._lessons.values() if lesson.regime == regime]
+
+    def for_regime(self, phase: str) -> list[Lesson]:
+        """该相位适用的教训:regime==phase 的 + regime=='all' 的通用原则。"""
+        return [lesson for lesson in self._lessons.values()
+                if lesson.regime == phase or lesson.regime == "all"]
 
     def by_outcome(self, outcome: str) -> list[Lesson]:
-        return [l for l in self._lessons.values() if l.outcome == outcome]
+        return [lesson for lesson in self._lessons.values() if lesson.outcome == outcome]
 
     def by_pattern(self, pattern: str) -> list[Lesson]:
-        return [l for l in self._lessons.values() if l.pattern == pattern]
+        return [lesson for lesson in self._lessons.values() if lesson.pattern == pattern]
 
     def __len__(self) -> int:
         return len(self._lessons)

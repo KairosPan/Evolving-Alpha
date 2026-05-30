@@ -21,3 +21,16 @@ def test_memory_store_queries():
     assert {l.lesson_id for l in store.by_outcome("principle")} == {"l1", "l3"}
     assert {l.lesson_id for l in store.by_pattern("纪律")} == {"l3"}
     assert len(store) == 3
+
+
+def test_for_regime_includes_all_lessons():
+    store = MemoryStore.from_lessons(_lessons())
+    # l3 regime=='all' 应出现在任何相位查询里, l1/l2 是退潮
+    assert {l.lesson_id for l in store.for_regime("退潮")} == {"l1", "l2", "l3"}
+    assert {l.lesson_id for l in store.for_regime("主升")} == {"l3"}
+
+
+def test_store_rejects_duplicate_ids():
+    import pytest
+    with pytest.raises(ValueError):
+        MemoryStore.from_lessons([_lessons()[0], _lessons()[0]])

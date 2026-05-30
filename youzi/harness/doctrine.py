@@ -2,15 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youzi.harness.regime import classify_regime
-
-
-def _norm(raw: str) -> str:
-    s = (raw or "").strip()
-    if s == "all":
-        return "all"
-    kind, value = classify_regime(s)
-    return value if kind == "phase" else s
+from youzi.harness.regime import normalize_regime
 
 
 class DoctrineEntry(BaseModel):
@@ -25,7 +17,7 @@ class DoctrineEntry(BaseModel):
 
     @classmethod
     def from_seed(cls, d: dict) -> "DoctrineEntry":
-        return cls(**{**d, "regime": _norm(d.get("regime", ""))})
+        return cls(**{**d, "regime": normalize_regime(d.get("regime", ""))})
 
 
 class Doctrine(BaseModel):

@@ -35,4 +35,10 @@ class StateMachine(BaseModel):
 
     @classmethod
     def from_seed_list(cls, items: list[dict]) -> "StateMachine":
-        return cls(phases=[EmotionPhase(**d) for d in items])
+        phases = [EmotionPhase(**d) for d in items]
+        seen: set[str] = set()
+        for p in phases:
+            if p.phase in seen:
+                raise ValueError(f"重复 phase: {p.phase}")
+            seen.add(p.phase)
+        return cls(phases=phases)

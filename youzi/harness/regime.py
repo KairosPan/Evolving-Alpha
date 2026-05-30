@@ -40,3 +40,12 @@ def split_regimes(raw: list[str]) -> tuple[list[str], list[str]]:
         elif kind == "ecology" and value not in ecologies:
             ecologies.append(value)
     return (phases, ecologies)
+
+
+def normalize_regime(raw: str) -> str:
+    """归一 regime 串:canonical 相位;'all' 原样保留;非相位(生态/触发条件)原样保留。"""
+    s = (raw or "").strip()
+    if s == "all":
+        return "all"
+    kind, value = classify_regime(s)
+    return value if kind == "phase" else s

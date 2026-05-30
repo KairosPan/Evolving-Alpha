@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youzi.harness.regime import classify_regime
+from youzi.harness.regime import normalize_regime
 
 Outcome = Literal["win", "loss", "principle"]
 
@@ -25,15 +25,6 @@ class Importance(BaseModel):
         self.time_decay *= factor
 
 
-def _norm_regime(raw: str) -> str:
-    """记忆的 regime:'all' 原样保留;否则归一到 canonical 相位,归一失败则原样保留。"""
-    s = (raw or "").strip()
-    if s == "all":
-        return "all"
-    kind, value = classify_regime(s)
-    return value if kind == "phase" else s
-
-
 class Lesson(BaseModel):
     """M 记忆条目(可变)。"""
     model_config = ConfigDict(extra="forbid")
@@ -49,4 +40,4 @@ class Lesson(BaseModel):
 
     @classmethod
     def from_seed(cls, d: dict) -> "Lesson":
-        return cls(**{**d, "regime": _norm_regime(d.get("regime", ""))})
+        return cls(**{**d, "regime": normalize_regime(d.get("regime", ""))})

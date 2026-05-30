@@ -17,3 +17,11 @@ def test_state_machine_get_and_signals():
     assert sm.next_signals("主升") == [("震荡补涨", "第一根强分歧阴K且次日非强修复")]
     assert sm.get("不存在") is None
     assert sm.phase_names() == ["退潮", "主升"]
+
+
+def test_state_machine_rejects_duplicate_phases():
+    import pytest
+    with pytest.raises(ValueError):
+        StateMachine.from_seed_list([
+            {"phase": "主升", "you_see": [], "transitions": []},
+            {"phase": "主升", "you_see": [], "transitions": []}])
