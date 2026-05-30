@@ -38,3 +38,19 @@ def test_store_rejects_duplicate_ids():
     import pytest
     with pytest.raises(ValueError):
         MemoryStore.from_lessons([_lessons()[0], _lessons()[0]])
+
+
+def test_memory_store_crud():
+    import pytest
+    store = MemoryStore.from_lessons(_lessons())
+    store.add(Lesson.from_seed({"lesson_id": "l9", "regime": "主升",
+                                "outcome": "win", "lesson": "新教训"}))
+    assert store.get("l9") is not None
+    with pytest.raises(ValueError):
+        store.add(_lessons()[0])                 # 重复 id
+    store.update("l1", lesson="改写后的教训")
+    assert store.get("l1").lesson == "改写后的教训"
+    store.demote("l1", 0.5)
+    assert abs(store.get("l1").importance.time_decay - 0.5) < 1e-9
+    with pytest.raises(KeyError):
+        store.update("没有", lesson="x")

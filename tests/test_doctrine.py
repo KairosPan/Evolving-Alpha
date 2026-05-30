@@ -35,3 +35,27 @@ def test_doctrine_entry_forbids_unknown_keys():
     with pytest.raises(ValidationError):
         DoctrineEntry.from_seed({"section": "x", "regime": "all", "immutable": False,
                                  "guidance": "g", "typo_key": 1})
+
+
+def test_doctrine_crud_with_immutable_protection():
+    import pytest
+    from youzi.harness.errors import ImmutableDoctrineError
+    doc = Doctrine(entries=_entries())
+    # 改写可变条目 OK
+    doc.rewrite("退潮作战", "新的退潮指导")
+    assert doc.get("退潮作战").guidance == "新的退潮指导"
+    # 改写纪律红线 -> 拒绝
+    with pytest.raises(ImmutableDoctrineError):
+        doc.rewrite("纪律红线:退潮不接力", "篡改")
+    # 删除纪律红线 -> 拒绝
+    with pytest.raises(ImmutableDoctrineError):
+        doc.remove("纪律红线:退潮不接力")
+    # 删除可变条目 OK
+    doc.remove("退潮作战")
+    assert doc.get("退潮作战") is None
+    # 新增 + 重复 section 拒绝
+    doc.add(DoctrineEntry.from_seed({"section": "新作战", "regime": "主升",
+                                     "immutable": False, "guidance": "g"}))
+    with pytest.raises(ValueError):
+        doc.add(DoctrineEntry.from_seed({"section": "主升作战", "regime": "主升",
+                                         "immutable": False, "guidance": "dup"}))

@@ -39,3 +39,25 @@ class MemoryStore:
 
     def __len__(self) -> int:
         return len(self._lessons)
+
+    # ── CRUD ────────────────────────────────────────────────────────────
+
+    def add(self, lesson: Lesson) -> None:
+        if lesson.lesson_id in self._lessons:
+            raise ValueError(f"重复 lesson_id: {lesson.lesson_id}")
+        self._lessons[lesson.lesson_id] = lesson
+
+    def update(self, lesson_id: str, **fields) -> Lesson:
+        l = self._lessons.get(lesson_id)
+        if l is None:
+            raise KeyError(f"无此 lesson_id: {lesson_id}")
+        for k, v in fields.items():
+            setattr(l, k, v)             # validate_assignment 走校验
+        return l
+
+    def demote(self, lesson_id: str, factor: float) -> Lesson:
+        l = self._lessons.get(lesson_id)
+        if l is None:
+            raise KeyError(f"无此 lesson_id: {lesson_id}")
+        l.importance.demote(factor)
+        return l

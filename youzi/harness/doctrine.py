@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from youzi.harness.errors import ImmutableDoctrineError
 from youzi.harness.regime import parse_regime_field
 
 
@@ -46,3 +47,30 @@ class Doctrine(BaseModel):
     @classmethod
     def from_seed_list(cls, items: list[dict]) -> "Doctrine":
         return cls(entries=[DoctrineEntry.from_seed(d) for d in items])
+
+    # ── CRUD (写保护) ────────────────────────────────────────────────────
+
+    def get(self, section: str) -> DoctrineEntry | None:
+        return next((e for e in self.entries if e.section == section), None)
+
+    def add(self, entry: DoctrineEntry) -> None:
+        if self.get(entry.section) is not None:
+            raise ValueError(f"重复 section: {entry.section}")
+        self.entries.append(entry)
+
+    def rewrite(self, section: str, new_guidance: str) -> DoctrineEntry:
+        e = self.get(section)
+        if e is None:
+            raise KeyError(f"无此 section: {section}")
+        if e.immutable:
+            raise ImmutableDoctrineError(f"纪律红线不可改写: {section}")
+        e.guidance = new_guidance
+        return e
+
+    def remove(self, section: str) -> None:
+        e = self.get(section)
+        if e is None:
+            raise KeyError(f"无此 section: {section}")
+        if e.immutable:
+            raise ImmutableDoctrineError(f"纪律红线不可删除: {section}")
+        self.entries.remove(e)
