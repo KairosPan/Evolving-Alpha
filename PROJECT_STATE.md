@@ -48,7 +48,8 @@
 - **种子知识库 v1 已抽取并入 main** → `seeds/{skills,memory,doctrine,state_machine}.json`(57技能/21记忆/22doctrine(10纪律红线)/7相位;`seeds/README.md` 有 schema+相位归一词表+v1 缺口)。
 - **Phase-0b-1 已完成并入 main**(`youzi/harness/`:regime 归一 / Skill+decay 统计 / Lesson+双衰减 / Doctrine(immutable核)/ 状态机 / registry / store / HarnessState / loader):只读载入+查询,**载入真实 seeds 集成测试通过**(57/21/22/7,10纪律红线,全部相位归一干净);61 测试绿,subagent-driven 两段评审+终审 READY。
 - **Phase-0b-2 已完成并入 main**(`youzi/harness/{errors,edit_log,metatools}.py` + 容器 CRUD):可编辑 Harness——9 个 meta-tools(write/patch/retire→dormant/revive/promote_skill、process/update/demote_memory、rewrite_doctrine)+ **immutable-core 对象级写保护**(DoctrineEntry.`__setattr__` 守卫,终审追全路径无洞)+ 技能生命周期(dormant 轮回复活,非法转移抛错)+ **编辑审计 Δ 轨迹**(EditLog,被拒编辑不入账,record 带 payload)+ **P0 多 regime 修复**(for_regime 成员匹配,真实种子 11 条多相位记忆已可查)+ patch/update 原子性。82 测试绿,subagent-driven 两段评审+终审 READY。
-- **Phase-0b-3(待写)**:版本化磁盘持久化/快照/回滚/diff。终审标记的债务:① EditLog 仅内存,需序列化;② Δ payload 多数 op 只记新值无 old-state,回滚需 before-image;③ `MetaTools.h/.log` 公开可绕审计,需收口;④ `object.__setattr__`/`model_copy(update=)` 能绕过 immutable 守卫(无 API 路径触及;0b-3 的 restore 须保 immutable 标记);⑤ Skill 无 `applies_all`(regime-agnostic 技能无法表达);⑥ 3 条种子非 canonical token(见 seeds/README)。G 子 Agent 留待 Phase-1。
+- **Phase-0b-3 计划已写**(`docs/superpowers/plans/2026-05-30-phase0b3-persistence-rollback.md`):Harness 持久化——`HarnessState.to_dict/from_dict` + `EditLog` 序列化(债务①)+ meta-tool before-image payload(债务②)+ immutable 跨往返保真(债务④)+ `Skill.applies_all`(债务⑤)+ `SnapshotStore`(版本化磁盘快照)+ `HarnessManager`(checkpoint/rollback,加载整版快照重绑 tools)。集成测试载入真实 seeds 跑 编辑→快照→再编辑→回滚→断言还原。**明确推迟**:③ MetaTools.h/log 强封装(→Phase-1 读写边界)、⑥ 3 条种子 token 修正(数据,见 seeds/README)、增量 delta-replay 回滚、并发锁。
+- **之后**:Hmin/Hexpert 基线 + 评测脚手架(蓝图 §6.9);龙虎榜/题材线特征;仓位/组合层。**Phase-1 = G 子 Agent + act→Refiner 编辑 H 的闭环**(meta-tool + 持久化底座就绪后)。
 - 之后:Hmin/Hexpert 基线 + 评测脚手架(蓝图 §6.9);龙虎榜/题材线特征;仓位/组合层雏形。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
