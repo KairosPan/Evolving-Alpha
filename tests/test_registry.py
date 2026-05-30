@@ -110,3 +110,13 @@ def test_registry_lifecycle_retire_revive_promote():
     assert reg.get("a").status == "retired"
     with pytest.raises(InvalidTransitionError):
         reg.revive("a")                   # retired 不能 revive(非 dormant)
+
+
+def test_by_phase_honors_applies_all():
+    universal = Skill.from_seed({"skill_id": "risk", "name_cn": "风控通则", "type": "failure_detector",
+                                 "applicable_regime": ["all"], "trigger": "t", "entry": "规避",
+                                 "exit_stop": "N/A", "status": "active"})
+    reg = SkillRegistry.from_skills([_one(), universal])
+    # universal 对任意相位都命中;_one() 只在 主升
+    assert {s.skill_id for s in reg.by_phase("退潮")} == {"risk"}
+    assert {s.skill_id for s in reg.by_phase("主升")} == {"a", "risk"}

@@ -33,7 +33,7 @@ class SkillRegistry:
         return [s for s in self._skills.values() if s.type == type_]
 
     def by_phase(self, phase: str) -> list[Skill]:
-        return [s for s in self._skills.values() if phase in s.phases]
+        return [s for s in self._skills.values() if phase in s.phases or s.applies_all]
 
     def by_ecology(self, ecology: str) -> list[Skill]:
         return [s for s in self._skills.values() if ecology in s.ecologies]

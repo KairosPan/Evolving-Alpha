@@ -52,3 +52,15 @@ def test_skill_stats_record_rejects_bad_decay():
         st.record(win=True, decay=1.5)
     with pytest.raises(ValueError):
         st.record(win=True, decay=0.0)
+
+
+def test_skill_from_seed_applies_all():
+    s = Skill.from_seed({"skill_id": "u", "name_cn": "通用", "type": "pattern",
+                         "applicable_regime": ["all"], "trigger": "t", "entry": "e",
+                         "exit_stop": "x", "status": "active"})
+    assert s.applies_all is True
+    assert s.phases == [] and s.ecologies == []      # "all" 不进 phases
+    s2 = Skill.from_seed({"skill_id": "v", "name_cn": "甲", "type": "pattern",
+                          "applicable_regime": ["主升"], "trigger": "t", "entry": "e",
+                          "exit_stop": "x", "status": "active"})
+    assert s2.applies_all is False and s2.phases == ["主升"]

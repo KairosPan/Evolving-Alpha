@@ -40,6 +40,7 @@ class Skill(BaseModel):
     applicable_regime: list[str] = Field(default_factory=list)   # 原始(可溯源)
     phases: list[str] = Field(default_factory=list)              # 归一 canonical 相位
     ecologies: list[str] = Field(default_factory=list)           # 归一生态标签
+    applies_all: bool = False             # applicable_regime 含 "all" 则对任意相位通用
     trigger: str
     entry: str
     exit_stop: str
@@ -53,5 +54,8 @@ class Skill(BaseModel):
 
     @classmethod
     def from_seed(cls, d: dict) -> "Skill":
-        phases, ecologies = split_regimes(d.get("applicable_regime", []))
-        return cls(**{**d, "phases": phases, "ecologies": ecologies})
+        raw = d.get("applicable_regime", [])
+        applies_all = "all" in raw
+        phases, ecologies = split_regimes([r for r in raw if r != "all"])
+        return cls(**{**d, "phases": phases, "ecologies": ecologies,
+                      "applies_all": applies_all})
