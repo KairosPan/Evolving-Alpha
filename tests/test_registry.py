@@ -120,3 +120,14 @@ def test_by_phase_honors_applies_all():
     # universal 对任意相位都命中;_one() 只在 主升
     assert {s.skill_id for s in reg.by_phase("退潮")} == {"risk"}
     assert {s.skill_id for s in reg.by_phase("主升")} == {"a", "risk"}
+
+
+def test_patch_applicable_regime_recomputes_applies_all():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])      # _one(): 主升, applies_all False
+    reg.patch("a", applicable_regime=["all"])
+    assert reg.get("a").applies_all is True and reg.get("a").phases == []
+    reg.patch("a", applicable_regime=["退潮"])
+    assert reg.get("a").applies_all is False and reg.get("a").phases == ["退潮"]
+    with pytest.raises(ValueError):
+        reg.patch("a", applies_all=True)           # 派生字段不可直接 patch

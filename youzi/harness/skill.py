@@ -40,7 +40,7 @@ class Skill(BaseModel):
     applicable_regime: list[str] = Field(default_factory=list)   # 原始(可溯源)
     phases: list[str] = Field(default_factory=list)              # 归一 canonical 相位
     ecologies: list[str] = Field(default_factory=list)           # 归一生态标签
-    applies_all: bool = False             # applicable_regime 含 "all" 则对任意相位通用
+    applies_all: bool = False             # applicable_regime 含 "all" → 对任意"相位"通用(by_phase 认);不影响 by_ecology
     trigger: str
     entry: str
     exit_stop: str

@@ -44,6 +44,7 @@ def test_harness_roundtrip_preserves_state():
     # doctrine / cycle 数量保真
     assert len(h2.doctrine.entries) == 2
     assert h2.cycle.get("主升").you_see == ["龙头突破"]
+    assert h.to_dict() == h2.to_dict()           # 全字段往返幂等
 
 
 def test_roundtrip_preserves_immutable_protection():

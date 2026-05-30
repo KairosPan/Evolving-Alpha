@@ -43,7 +43,7 @@ class SkillRegistry:
 
     # ── CRUD + 生命周期 ──────────────────────────────────────────────────
 
-    _PATCH_FORBIDDEN = {"status", "phases", "ecologies"}
+    _PATCH_FORBIDDEN = {"status", "phases", "ecologies", "applies_all"}
 
     def _require(self, skill_id: str) -> Skill:
         s = self._skills.get(skill_id)
@@ -69,8 +69,10 @@ class SkillRegistry:
             for k, v in snapshot.items():   # 回滚已改字段(旧值合法,setattr 不会再失败)
                 setattr(s, k, v)
             raise
-        if "applicable_regime" in fields:           # 改了原始 regime -> 重算派生 phases/ecologies
-            s.phases, s.ecologies = split_regimes(s.applicable_regime)
+        if "applicable_regime" in fields:           # 改了原始 regime -> 重算派生 applies_all/phases/ecologies
+            raw = s.applicable_regime
+            s.applies_all = "all" in raw
+            s.phases, s.ecologies = split_regimes([r for r in raw if r != "all"])
         return s
 
     def retire(self, skill_id: str, permanent: bool = False) -> Skill:
