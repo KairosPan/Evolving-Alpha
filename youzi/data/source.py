@@ -5,7 +5,6 @@ from typing import Protocol
 
 import pandas as pd
 
-from youzi.config import ADJUST
 from youzi.replay.firewall import AsOfGuard
 
 # akshare 中文列 -> 统一英文列
@@ -17,8 +16,9 @@ _RENAME = {
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["code", "name", "boards", "pct"])
+        return pd.DataFrame(columns=["code", "name", "boards", "pct", "blowups"])
     out = df.rename(columns=_RENAME).copy()
+    out = out.loc[:, ~out.columns.duplicated()]  # 防 _RENAME 把多列映射到同名(如 boards)导致重复列
     if "code" in out.columns:
         out["code"] = out["code"].astype(str).str.zfill(6)
     for col in ("boards", "pct", "blowups"):
