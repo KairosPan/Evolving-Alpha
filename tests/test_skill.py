@@ -34,3 +34,21 @@ def test_skill_defaults_for_optional_fields():
     })
     assert s.taboo == [] and s.depends_on == [] and s.examples == []
     assert s.notes == "" and s.phases == [] and s.ecologies == []
+
+
+def test_skill_from_seed_forbids_unknown_keys():
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Skill.from_seed({"skill_id": "x", "name_cn": "x", "type": "pattern",
+                         "applicable_regime": [], "trigger": "t", "entry": "e",
+                         "exit_stop": "x", "status": "active", "taboos": ["typo"]})
+
+
+def test_skill_stats_record_rejects_bad_decay():
+    import pytest
+    st = SkillStats()
+    with pytest.raises(ValueError):
+        st.record(win=True, decay=1.5)
+    with pytest.raises(ValueError):
+        st.record(win=True, decay=0.0)

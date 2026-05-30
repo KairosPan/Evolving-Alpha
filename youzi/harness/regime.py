@@ -16,7 +16,7 @@ _PHASE_RULES: list[tuple[tuple[str, ...], str]] = [
 
 
 def classify_regime(raw: str) -> tuple[str, str | None]:
-    """归一单个 regime 串。返回 (kind, value),kind ∈ {'phase','ecology','other'}。"""
+    """归一单个 regime 串。返回 (kind, value),kind ∈ {'phase','ecology','other'}。(入参假定为 playbook 受控词,非通用 NL;子串匹配刻意宽松)"""
     s = (raw or "").strip()
     if not s:
         return ("other", None)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from youzi.harness.regime import classify_regime
 
@@ -20,6 +20,8 @@ class Importance(BaseModel):
 
     def demote(self, factor: float) -> None:
         """按 factor 压低 time_decay(越过的区域降权,不删)。"""
+        if not 0.0 < factor <= 1.0:
+            raise ValueError(f"demote factor 必须在 (0,1], got {factor}")
         self.time_decay *= factor
 
 
@@ -34,6 +36,7 @@ def _norm_regime(raw: str) -> str:
 
 class Lesson(BaseModel):
     """M 记忆条目(可变)。"""
+    model_config = ConfigDict(extra="forbid")
     lesson_id: str
     regime: str
     pattern: str = ""

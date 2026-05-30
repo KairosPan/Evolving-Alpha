@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from youzi.harness.regime import split_regimes
 
@@ -22,6 +22,8 @@ class SkillStats(BaseModel):
 
     def record(self, win: bool, decay: float = 0.1) -> None:
         """记一次结果。首样本直接置入 ewma;之后 ewma = decay*x + (1-decay)*ewma。"""
+        if not 0.0 < decay <= 1.0:
+            raise ValueError(f"decay 必须在 (0,1], got {decay}")
         x = 1.0 if win else 0.0
         self.n += 1
         self.wins += int(win)
@@ -31,6 +33,7 @@ class SkillStats(BaseModel):
 
 class Skill(BaseModel):
     """K 技能(可变 harness 状态;Refiner 后续编辑)。"""
+    model_config = ConfigDict(extra="forbid")
     skill_id: str
     name_cn: str
     type: SkillType

@@ -30,3 +30,12 @@ def test_lesson_loss_with_analog():
         "lesson": "由强转弱即退潮拐点, 回避高位", "source_lines": [437, 438],
     })
     assert s.named_analog == "神马电力2024/6/28" and s.outcome == "loss"
+
+
+def test_importance_demote_rejects_bad_factor():
+    import pytest
+    imp = Importance()
+    with pytest.raises(ValueError):
+        imp.demote(0.0)
+    with pytest.raises(ValueError):
+        imp.demote(1.5)
