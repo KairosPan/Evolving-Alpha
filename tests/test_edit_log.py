@@ -18,3 +18,19 @@ def test_edit_log_queries():
     assert [r.target_id for r in log.by_kind("skill")] == ["a", "a"]
     assert [r.seq for r in log.by_tool("write_skill")] == [0]
     assert len(log.records()) == 3
+
+
+def test_edit_log_roundtrip_preserves_seq_and_continues():
+    log = EditLog()
+    log.append("write_skill", "skill", "a", "create", "甲")
+    log.append("retire_skill", "skill", "a", "retire", "dormant", payload={"before": "active"})
+    data = log.to_dict()
+    assert isinstance(data, list) and len(data) == 2
+
+    restored = EditLog.from_dict(data)
+    assert len(restored) == 2
+    assert [r.seq for r in restored.records()] == [0, 1]
+    assert restored.records()[1].payload == {"before": "active"}
+    # 续号:还原后再 append 接着 seq=2
+    r2 = restored.append("promote_skill", "skill", "a", "promote")
+    assert r2.seq == 2

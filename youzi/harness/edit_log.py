@@ -39,3 +39,12 @@ class EditLog:
 
     def __len__(self) -> int:
         return len(self._records)
+
+    def to_dict(self) -> list[dict]:
+        return [r.model_dump() for r in self._records]
+
+    @classmethod
+    def from_dict(cls, data: list[dict]) -> "EditLog":
+        log = cls()
+        log._records = [EditRecord.model_validate(r) for r in data]
+        return log
