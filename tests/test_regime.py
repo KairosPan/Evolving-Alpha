@@ -36,3 +36,8 @@ def test_parse_regime_field_multi_and_all():
     assert parse_regime_field("all") == ([], [], True)
     assert parse_regime_field("退潮期") == (["退潮"], [], False)
     assert parse_regime_field("") == ([], [], False)
+
+
+def test_parse_regime_field_drops_unrecognized_token():
+    # '高潮' 非 canonical 相位 -> 从 phases 丢弃, 不报错(仅留在调用方 regime_raw)
+    assert parse_regime_field("主升/高潮") == (["主升"], [], False)

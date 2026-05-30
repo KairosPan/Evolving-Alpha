@@ -44,15 +44,6 @@ def split_regimes(raw: list[str]) -> tuple[list[str], list[str]]:
     return (phases, ecologies)
 
 
-def normalize_regime(raw: str) -> str:
-    """归一 regime 串:canonical 相位;'all' 原样保留;非相位(生态/触发条件)原样保留。"""
-    s = (raw or "").strip()
-    if s == "all":
-        return "all"
-    kind, value = classify_regime(s)
-    return value if kind == "phase" else s
-
-
 _REGIME_SPLIT = re.compile(r"[/、,，\s]+")
 
 
@@ -60,6 +51,7 @@ def parse_regime_field(raw: str) -> tuple[list[str], list[str], bool]:
     """把单值 regime 串(可能复合如 '主升/退潮' 或 'all')解析为 (phases, ecologies, applies_all)。
 
     用于 Lesson/DoctrineEntry 的 regime 字段(单字符串);Skill 的 applicable_regime 已是列表,仍用 split_regimes。
+    未被识别为相位/生态/all 的 token 会从 phases/ecologies 丢弃(仅保留在调用方的 regime_raw 里)。
     """
     s = (raw or "").strip()
     if not s:
