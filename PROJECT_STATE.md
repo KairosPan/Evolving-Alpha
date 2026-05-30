@@ -47,8 +47,8 @@
 ### Phase-0b 进行中
 - **种子知识库 v1 已抽取并入 main** → `seeds/{skills,memory,doctrine,state_machine}.json`(57技能/21记忆/22doctrine(10纪律红线)/7相位;`seeds/README.md` 有 schema+相位归一词表+v1 缺口)。
 - **Phase-0b-1 已完成并入 main**(`youzi/harness/`:regime 归一 / Skill+decay 统计 / Lesson+双衰减 / Doctrine(immutable核)/ 状态机 / registry / store / HarnessState / loader):只读载入+查询,**载入真实 seeds 集成测试通过**(57/21/22/7,10纪律红线,全部相位归一干净);61 测试绿,subagent-driven 两段评审+终审 READY。
-- **Phase-0b-2 计划已写**(`docs/superpowers/plans/2026-05-30-phase0b2-metatools-crud.md`):可编辑 Harness——CRUD meta-tools(write/patch/retire→dormant/revive/promote/process_memory/rewrite_doctrine)+ **immutable-core 写保护** + 技能生命周期(dormant 轮回复活)+ **编辑审计 Δ 轨迹**(EditLog)+ **P0 多 regime 修复**(Lesson/DoctrineEntry.regime 单值→phases/ecologies/applies_all,for_regime 成员匹配)。集成测试载入真实 seeds 跑编辑序列+写保护。
-- **Phase-0b-3(待写)**:版本化磁盘持久化/快照/回滚/diff(独立持久化子系统);G 子 Agent 留待 Phase-1。
+- **Phase-0b-2 已完成并入 main**(`youzi/harness/{errors,edit_log,metatools}.py` + 容器 CRUD):可编辑 Harness——9 个 meta-tools(write/patch/retire→dormant/revive/promote_skill、process/update/demote_memory、rewrite_doctrine)+ **immutable-core 对象级写保护**(DoctrineEntry.`__setattr__` 守卫,终审追全路径无洞)+ 技能生命周期(dormant 轮回复活,非法转移抛错)+ **编辑审计 Δ 轨迹**(EditLog,被拒编辑不入账,record 带 payload)+ **P0 多 regime 修复**(for_regime 成员匹配,真实种子 11 条多相位记忆已可查)+ patch/update 原子性。82 测试绿,subagent-driven 两段评审+终审 READY。
+- **Phase-0b-3(待写)**:版本化磁盘持久化/快照/回滚/diff。终审标记的债务:① EditLog 仅内存,需序列化;② Δ payload 多数 op 只记新值无 old-state,回滚需 before-image;③ `MetaTools.h/.log` 公开可绕审计,需收口;④ `object.__setattr__`/`model_copy(update=)` 能绕过 immutable 守卫(无 API 路径触及;0b-3 的 restore 须保 immutable 标记);⑤ Skill 无 `applies_all`(regime-agnostic 技能无法表达);⑥ 3 条种子非 canonical token(见 seeds/README)。G 子 Agent 留待 Phase-1。
 - 之后:Hmin/Hexpert 基线 + 评测脚手架(蓝图 §6.9);龙虎榜/题材线特征;仓位/组合层雏形。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
