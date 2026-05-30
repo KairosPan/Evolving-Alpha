@@ -1,4 +1,4 @@
-from youzi.harness.regime import classify_regime, split_regimes, CANONICAL_PHASES
+from youzi.harness.regime import classify_regime, split_regimes, CANONICAL_PHASES, parse_regime_field
 
 
 def test_classify_phase_variants():
@@ -27,3 +27,12 @@ def test_split_regimes_dedup_and_order():
 def test_canonical_phases_are_seven():
     assert len(CANONICAL_PHASES) == 7
     assert CANONICAL_PHASES[0] == "混沌冰点" and CANONICAL_PHASES[-1] == "退潮"
+
+
+def test_parse_regime_field_multi_and_all():
+    assert parse_regime_field("主升/退潮") == (["主升", "退潮"], [], False)
+    assert parse_regime_field("修复/回暖/启动") == (["修复启动", "情绪回暖", "题材启动"], [], False)
+    assert parse_regime_field("次新生态/超跌生态") == ([], ["次新生态", "超跌生态"], False)
+    assert parse_regime_field("all") == ([], [], True)
+    assert parse_regime_field("退潮期") == (["退潮"], [], False)
+    assert parse_regime_field("") == ([], [], False)

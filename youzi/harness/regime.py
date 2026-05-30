@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 CANONICAL_PHASES = ["混沌冰点", "修复启动", "情绪回暖", "题材启动", "主升", "震荡补涨", "退潮"]
 ECOLOGY_TAGS = ["连板生态", "容量生态", "20cm生态", "次新生态", "超跌生态", "ST生态", "北交生态"]
 
@@ -49,3 +51,20 @@ def normalize_regime(raw: str) -> str:
         return "all"
     kind, value = classify_regime(s)
     return value if kind == "phase" else s
+
+
+_REGIME_SPLIT = re.compile(r"[/、,，\s]+")
+
+
+def parse_regime_field(raw: str) -> tuple[list[str], list[str], bool]:
+    """把单值 regime 串(可能复合如 '主升/退潮' 或 'all')解析为 (phases, ecologies, applies_all)。
+
+    用于 Lesson/DoctrineEntry 的 regime 字段(单字符串);Skill 的 applicable_regime 已是列表,仍用 split_regimes。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ([], [], False)
+    tokens = [t for t in _REGIME_SPLIT.split(s) if t]
+    applies_all = "all" in tokens
+    phases, ecologies = split_regimes([t for t in tokens if t != "all"])
+    return (phases, ecologies, applies_all)
