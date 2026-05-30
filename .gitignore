@@ -12,7 +12,7 @@ __pycache__/
 venv/
 
 # Data / model artifacts (大文件与生成物,避免污染版本库)
-data/
+/data/
 *.parquet
 *.feather
 checkpoints/
