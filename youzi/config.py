@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# PIT 缓存根目录(.gitignore 已忽略 data/)
+# PIT 缓存根目录(.gitignore 忽略 /data/,不影响 youzi/data/ 包)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = PROJECT_ROOT / "data" / "pit_cache"
 

@@ -1,9 +1,11 @@
 # tests/test_schemas.py
 from datetime import date, datetime
+import pytest
+from pydantic import ValidationError
 from youzi.schemas.market import MarketState, EchelonRung
 
 
-def test_market_state_roundtrip_and_validation():
+def test_market_state_construction_and_bounds():
     s = MarketState(
         date=date(2024, 6, 27),
         max_board_height=7,
@@ -19,9 +21,9 @@ def test_market_state_roundtrip_and_validation():
     )
     assert s.max_board_height == 7
     assert s.echelon[0].representatives == ["中马传动"]
+    # 冻结模型仍可序列化往返,且按值相等
+    assert MarketState.model_validate(s.model_dump()) == s
     # blowup_rate 越界应报错
-    import pytest
-    from pydantic import ValidationError
     with pytest.raises(ValidationError):
         MarketState(
             date=date(2024, 6, 27), max_board_height=1, limit_up_count=1,

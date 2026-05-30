@@ -18,3 +18,9 @@ def test_guard_advance_moves_boundary():
     g.check(date(2024, 6, 28))   # 推进后允许
     with pytest.raises(LookaheadError):
         g.check(date(2024, 6, 29))
+
+
+def test_guard_advance_rejects_backward():
+    g = AsOfGuard(as_of=date(2024, 6, 27))
+    with pytest.raises(ValueError):
+        g.advance(date(2024, 6, 26))
