@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from youzi.harness.regime import split_regimes
+
+SkillType = Literal["pattern", "feature", "failure_detector"]
+SkillStatus = Literal["active", "incubating", "dormant", "retired"]
+
+
+class SkillStats(BaseModel):
+    """技能滚动绩效(可变, 运行期更新)。EWMA 胜率为 time-decay 雏形,后续接 regime 双衰减。"""
+    n: int = 0
+    wins: int = 0
+    losses: int = 0
+    ewma_winrate: float | None = None
+    pnl_ratio: float | None = None
+    expectancy: float | None = None
+    oracle_gap: float | None = None
+
+    def record(self, win: bool, decay: float = 0.1) -> None:
+        """记一次结果。首样本直接置入 ewma;之后 ewma = decay*x + (1-decay)*ewma。"""
+        x = 1.0 if win else 0.0
+        self.n += 1
+        self.wins += int(win)
+        self.losses += int(not win)
+        self.ewma_winrate = x if self.ewma_winrate is None else decay * x + (1 - decay) * self.ewma_winrate
+
+
+class Skill(BaseModel):
+    """K 技能(可变 harness 状态;Refiner 后续编辑)。"""
+    skill_id: str
+    name_cn: str
+    type: SkillType
+    applicable_regime: list[str] = Field(default_factory=list)   # 原始(可溯源)
+    phases: list[str] = Field(default_factory=list)              # 归一 canonical 相位
+    ecologies: list[str] = Field(default_factory=list)           # 归一生态标签
+    trigger: str
+    entry: str
+    exit_stop: str
+    taboo: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
+    source_lines: list[int] = Field(default_factory=list)
+    status: SkillStatus = "incubating"
+    notes: str = ""
+    stats: SkillStats = Field(default_factory=SkillStats)
+
+    @classmethod
+    def from_seed(cls, d: dict) -> "Skill":
+        phases, ecologies = split_regimes(d.get("applicable_regime", []))
+        return cls(**{**d, "phases": phases, "ecologies": ecologies})
