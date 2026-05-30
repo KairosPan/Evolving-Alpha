@@ -4,10 +4,10 @@ from youzi.harness.memory_item import Lesson
 
 
 class MemoryStore:
-    """记忆库 M(按 lesson_id 索引)。Phase-0b-1 只读/查询;process_memory CRUD 见 Phase-0b-2。"""
+    """记忆库 M(按 lesson_id 索引)。"""
 
     def __init__(self, lessons: dict[str, Lesson]) -> None:
-        self._lessons = lessons
+        self._lessons = dict(lessons)          # 防御性拷贝,调用方不持有同一引用
 
     @classmethod
     def from_lessons(cls, lessons: list[Lesson]) -> "MemoryStore":
@@ -24,19 +24,18 @@ class MemoryStore:
     def all(self) -> list[Lesson]:
         return list(self._lessons.values())
 
-    def by_regime(self, regime: str) -> list[Lesson]:
-        return [lesson for lesson in self._lessons.values() if lesson.regime == regime]
-
     def for_regime(self, phase: str) -> list[Lesson]:
-        """该相位适用的教训:regime==phase 的 + regime=='all' 的通用原则。"""
-        return [lesson for lesson in self._lessons.values()
-                if lesson.regime == phase or lesson.regime == "all"]
+        """该相位适用的教训:phase ∈ phases 或 applies_all。"""
+        return [l for l in self._lessons.values() if phase in l.phases or l.applies_all]
+
+    def for_ecology(self, ecology: str) -> list[Lesson]:
+        return [l for l in self._lessons.values() if ecology in l.ecologies]
 
     def by_outcome(self, outcome: str) -> list[Lesson]:
-        return [lesson for lesson in self._lessons.values() if lesson.outcome == outcome]
+        return [l for l in self._lessons.values() if l.outcome == outcome]
 
     def by_pattern(self, pattern: str) -> list[Lesson]:
-        return [lesson for lesson in self._lessons.values() if lesson.pattern == pattern]
+        return [l for l in self._lessons.values() if l.pattern == pattern]
 
     def __len__(self) -> int:
         return len(self._lessons)
