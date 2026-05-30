@@ -15,6 +15,8 @@ def test_load_real_seeds_counts_and_validity():
     assert len(h.memory) == 21
     assert len(h.doctrine.entries) == 22
     assert len(h.cycle.phases) == 7
+    assert len({s.skill_id for s in h.skills.all()}) == len(h.skills)        # skill_id 唯一
+    assert all(isinstance(e.immutable, bool) for e in h.doctrine.entries)    # immutable 是真 bool 不是字符串
 
 
 def test_loaded_skill_phases_are_canonical_or_empty():
@@ -28,7 +30,7 @@ def test_loaded_skill_phases_are_canonical_or_empty():
 def test_loaded_doctrine_has_immutable_core():
     h = load_seeds(SEEDS)
     core = h.doctrine.immutable_core()
-    assert len(core) >= 8                       # v1 有 10 条纪律红线
+    assert len(core) >= 10   # v1 纪律红线=10(下限锚)
     assert all(e.immutable for e in core)
 
 
@@ -36,3 +38,13 @@ def test_loader_missing_dir_raises():
     import pytest
     with pytest.raises(FileNotFoundError):
         load_seeds(SEEDS / "does_not_exist")
+
+
+def test_loader_rejects_non_list_json(tmp_path):
+    import json, pytest
+    (tmp_path / "skills.json").write_text(json.dumps({"not": "a list"}), encoding="utf-8")
+    (tmp_path / "memory.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "doctrine.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "state_machine.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_seeds(tmp_path)

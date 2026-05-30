@@ -15,7 +15,10 @@ from youzi.harness.skill import Skill
 def _read_json(path: Path) -> list[dict]:
     if not path.exists():
         raise FileNotFoundError(f"种子文件缺失: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(f"种子文件顶层应为 JSON 数组, 实为 {type(data).__name__}: {path}")
+    return data
 
 
 def load_seeds(seeds_dir: str | Path) -> HarnessState:
