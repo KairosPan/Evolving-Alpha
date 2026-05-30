@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youzi.harness.regime import normalize_regime
+from youzi.harness.regime import parse_regime_field
 
 Outcome = Literal["win", "loss", "principle"]
 
@@ -19,17 +19,19 @@ class Importance(BaseModel):
         return self.base * self.time_decay * self.regime_decay
 
     def demote(self, factor: float) -> None:
-        """按 factor 压低 time_decay(越过的区域降权,不删)。"""
         if not 0.0 < factor <= 1.0:
             raise ValueError(f"demote factor 必须在 (0,1], got {factor}")
         self.time_decay *= factor
 
 
 class Lesson(BaseModel):
-    """M 记忆条目(可变)。"""
-    model_config = ConfigDict(extra="forbid")
+    """M 记忆条目(可变)。regime 解析为多值 phases/ecologies/applies_all。"""
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
     lesson_id: str
-    regime: str
+    regime_raw: str = ""              # 原始 regime 串(可溯源)
+    phases: list[str] = Field(default_factory=list)
+    ecologies: list[str] = Field(default_factory=list)
+    applies_all: bool = False
     pattern: str = ""
     outcome: Outcome
     failure_signature: str = ""
@@ -40,4 +42,8 @@ class Lesson(BaseModel):
 
     @classmethod
     def from_seed(cls, d: dict) -> "Lesson":
-        return cls(**{**d, "regime": normalize_regime(d.get("regime", ""))})
+        raw = d.get("regime", "")
+        phases, ecologies, applies_all = parse_regime_field(raw)
+        rest = {k: v for k, v in d.items() if k != "regime"}
+        return cls(**rest, regime_raw=raw, phases=phases,
+                   ecologies=ecologies, applies_all=applies_all)
