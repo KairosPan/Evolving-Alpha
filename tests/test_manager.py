@@ -49,3 +49,10 @@ def test_manager_shares_passed_empty_log(tmp_path):
     assert mgr.log is shared                 # 共享同一对象, 不被空 log 的 falsy 旁路替换
     mgr.tools.retire_skill("a")
     assert len(shared) == 1                   # 编辑记到了调用方传入的 log
+
+
+def test_rollback_missing_version_raises(tmp_path):
+    import pytest
+    mgr = HarnessManager(_h(), SnapshotStore(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        mgr.rollback_to(0)

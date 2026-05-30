@@ -40,6 +40,9 @@ class EditLog:
     def __len__(self) -> int:
         return len(self._records)
 
+    def __bool__(self) -> bool:
+        return True
+
     def to_dict(self) -> list[dict]:
         return [r.model_dump() for r in self._records]
 

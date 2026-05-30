@@ -40,6 +40,9 @@ class MemoryStore:
     def __len__(self) -> int:
         return len(self._lessons)
 
+    def __bool__(self) -> bool:
+        return True
+
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def add(self, lesson: Lesson) -> None:

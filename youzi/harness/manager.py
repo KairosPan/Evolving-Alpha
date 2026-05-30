@@ -23,8 +23,12 @@ class HarnessManager:
         return self.store.save(self.harness, self.log, label)
 
     def rollback_to(self, version: int) -> None:
+        """加载该版本快照并把 tools 重绑到还原态。
+        注意:rollback 后,任何在 rollback 前缓存了 mgr.tools / mgr.harness 的调用方,
+        其旧引用会静默操作被丢弃的 pre-rollback 状态——rollback 后务必重新取 mgr.tools。"""
         self.harness, self.log = self.store.load(version)
         self.tools = MetaTools(self.harness, self.log)     # 重绑到还原态
 
     def latest_version(self) -> int | None:
+        """磁盘上最新版本号(非内存当前 rollback 到的版本)。"""
         return self.store.latest()

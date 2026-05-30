@@ -41,6 +41,9 @@ class SkillRegistry:
     def __len__(self) -> int:
         return len(self._skills)
 
+    def __bool__(self) -> bool:
+        return True
+
     # ── CRUD + 生命周期 ──────────────────────────────────────────────────
 
     _PATCH_FORBIDDEN = {"status", "phases", "ecologies", "applies_all"}

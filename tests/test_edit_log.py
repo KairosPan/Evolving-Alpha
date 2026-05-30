@@ -34,3 +34,7 @@ def test_edit_log_roundtrip_preserves_seq_and_continues():
     # 续号:还原后再 append 接着 seq=2
     r2 = restored.append("promote_skill", "skill", "a", "promote")
     assert r2.seq == 2
+
+
+def test_empty_editlog_is_truthy():
+    assert bool(EditLog()) is True and len(EditLog()) == 0
