@@ -87,6 +87,16 @@ def test_retire_retired_rejects_non_permanent():
         reg.retire("a")                        # 不能把永久退役降回 dormant
 
 
+def test_patch_atomic_on_failure():
+    import pytest
+    from pydantic import ValidationError
+    reg = SkillRegistry.from_skills([_one()])
+    before = reg.get("a").notes
+    with pytest.raises(ValidationError):
+        reg.patch("a", notes="改了", entry=123)   # notes 先成功, entry(str) 收到 int 失败
+    assert reg.get("a").notes == before            # 已回滚, 未半改
+
+
 def test_registry_lifecycle_retire_revive_promote():
     import pytest
     reg = SkillRegistry.from_skills([_one()])

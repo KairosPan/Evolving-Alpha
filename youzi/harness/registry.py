@@ -61,8 +61,14 @@ class SkillRegistry:
         bad = self._PATCH_FORBIDDEN & fields.keys()
         if bad:
             raise ValueError(f"不可直接 patch {sorted(bad)}:status 用 retire/revive/promote;phases/ecologies 派生自 applicable_regime")
-        for k, v in fields.items():
-            setattr(s, k, v)                 # validate_assignment 走校验
+        snapshot = {k: getattr(s, k) for k in fields if k in type(s).model_fields}
+        try:
+            for k, v in fields.items():
+                setattr(s, k, v)                 # validate_assignment 走校验
+        except Exception:
+            for k, v in snapshot.items():   # 回滚已改字段(旧值合法,setattr 不会再失败)
+                setattr(s, k, v)
+            raise
         if "applicable_regime" in fields:           # 改了原始 regime -> 重算派生 phases/ecologies
             s.phases, s.ecologies = split_regimes(s.applicable_regime)
         return s

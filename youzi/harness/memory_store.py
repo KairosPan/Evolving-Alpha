@@ -51,8 +51,14 @@ class MemoryStore:
         l = self._lessons.get(lesson_id)
         if l is None:
             raise KeyError(f"无此 lesson_id: {lesson_id}")
-        for k, v in fields.items():
-            setattr(l, k, v)             # validate_assignment 走校验
+        snapshot = {k: getattr(l, k) for k in fields if k in type(l).model_fields}
+        try:
+            for k, v in fields.items():
+                setattr(l, k, v)             # validate_assignment 走校验
+        except Exception:
+            for k, v in snapshot.items():
+                setattr(l, k, v)
+            raise
         return l
 
     def demote(self, lesson_id: str, factor: float) -> Lesson:

@@ -54,3 +54,13 @@ def test_memory_store_crud():
     assert abs(store.get("l1").importance.time_decay - 0.5) < 1e-9
     with pytest.raises(KeyError):
         store.update("没有", lesson="x")
+
+
+def test_update_atomic_on_failure():
+    import pytest
+    from pydantic import ValidationError
+    store = MemoryStore.from_lessons(_lessons())
+    before = store.get("l1").lesson
+    with pytest.raises(ValidationError):
+        store.update("l1", lesson="改了", outcome="非法值")  # outcome 是 Literal, 失败
+    assert store.get("l1").lesson == before
