@@ -22,3 +22,9 @@ def test_build_echelon_groups_by_height_desc():
 def test_max_board_height_empty_is_zero():
     assert max_board_height(pd.DataFrame(columns=["boards"])) == 0
     assert max_board_height(_zt()) == 7
+
+
+def test_build_echelon_excludes_nonpositive_boards():
+    df = pd.DataFrame({"code": ["1", "2"], "name": ["甲", "乙"], "boards": [0, 2]})
+    rungs = build_echelon(df)
+    assert [r.height for r in rungs] == [2]   # boards=0 行被剔除,不抛 ValidationError

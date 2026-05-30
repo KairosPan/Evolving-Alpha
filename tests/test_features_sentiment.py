@@ -18,5 +18,6 @@ def test_normalize_is_percentile_rank():
     hist = [float(i) for i in range(100)]        # 0..99
     # 当前值 50 在 0..99 里的分位约 0.5
     p = normalize_sentiment(50.0, history=hist, min_samples=60)
-    assert p is not None and 0.45 <= p <= 0.55
+    assert p == 51 / 100   # count(h<=50)=51 in 0..99
     assert normalize_sentiment(1000.0, history=hist, min_samples=60) == 1.0
+    assert normalize_sentiment(-1.0, history=hist, min_samples=60) == 0.0   # 低于全部 → 0.0

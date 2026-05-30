@@ -19,6 +19,9 @@ def build_echelon(zt: pd.DataFrame, top_reps: int = 3) -> list[EchelonRung]:
     df = zt.copy()
     df["boards"] = pd.to_numeric(df["boards"], errors="coerce")
     df = df.dropna(subset=["boards"])
+    df = df[df["boards"] > 0]
+    if df.empty:
+        return []
     rungs: list[EchelonRung] = []
     for height, grp in df.groupby("boards"):
         names = grp["name"].astype(str).head(top_reps).tolist() if "name" in grp else []
