@@ -58,13 +58,33 @@ def test_registry_write_and_reject_dup():
 
 def test_registry_patch_validates():
     import pytest
+    from pydantic import ValidationError
     reg = SkillRegistry.from_skills([_one()])
-    reg.patch("a", notes="改了备注", status="dormant")
-    assert reg.get("a").notes == "改了备注" and reg.get("a").status == "dormant"
-    with pytest.raises(Exception):       # validate_assignment 拒绝非法值
-        reg.patch("a", status="不存在的状态")
+    reg.patch("a", notes="改了备注")
+    assert reg.get("a").notes == "改了备注"
+    with pytest.raises(ValidationError):
+        reg.patch("a", entry=123)             # entry 是 str 字段, 类型错 -> 校验失败
     with pytest.raises(KeyError):
         reg.patch("没有", notes="x")
+
+
+def test_patch_rejects_status_and_recomputes_derived():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])
+    with pytest.raises(ValueError):
+        reg.patch("a", status="active")        # 用 lifecycle
+    with pytest.raises(ValueError):
+        reg.patch("a", phases=["退潮"])         # 派生字段
+    reg.patch("a", applicable_regime=["退潮"])   # 改原始 -> 重算
+    assert reg.get("a").phases == ["退潮"]
+
+
+def test_retire_retired_rejects_non_permanent():
+    import pytest
+    reg = SkillRegistry.from_skills([_one()])
+    reg.retire("a", permanent=True)
+    with pytest.raises(InvalidTransitionError):
+        reg.retire("a")                        # 不能把永久退役降回 dormant
 
 
 def test_registry_lifecycle_retire_revive_promote():

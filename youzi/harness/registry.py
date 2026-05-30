@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from youzi.harness.errors import InvalidTransitionError
+from youzi.harness.regime import split_regimes
 from youzi.harness.skill import Skill
 
 
@@ -42,6 +43,8 @@ class SkillRegistry:
 
     # ── CRUD + 生命周期 ──────────────────────────────────────────────────
 
+    _PATCH_FORBIDDEN = {"status", "phases", "ecologies"}
+
     def _require(self, skill_id: str) -> Skill:
         s = self._skills.get(skill_id)
         if s is None:
@@ -55,13 +58,20 @@ class SkillRegistry:
 
     def patch(self, skill_id: str, **fields) -> Skill:
         s = self._require(skill_id)
+        bad = self._PATCH_FORBIDDEN & fields.keys()
+        if bad:
+            raise ValueError(f"不可直接 patch {sorted(bad)}:status 用 retire/revive/promote;phases/ecologies 派生自 applicable_regime")
         for k, v in fields.items():
             setattr(s, k, v)                 # validate_assignment 走校验
+        if "applicable_regime" in fields:           # 改了原始 regime -> 重算派生 phases/ecologies
+            s.phases, s.ecologies = split_regimes(s.applicable_regime)
         return s
 
     def retire(self, skill_id: str, permanent: bool = False) -> Skill:
         """退役:默认 -> dormant(保指纹待轮回复活);permanent -> retired。"""
         s = self._require(skill_id)
+        if s.status == "retired" and not permanent:
+            raise InvalidTransitionError(f"{skill_id} 已永久退役(retired),不接受非永久 retire")
         s.status = "retired" if permanent else "dormant"
         return s
 

@@ -26,6 +26,12 @@ class DoctrineEntry(BaseModel):
         return cls(**rest, regime_raw=raw, phases=phases,
                    ecologies=ecologies, applies_all=applies_all)
 
+    def __setattr__(self, name: str, value: object) -> None:
+        # 构造期 pydantic 直接写 __dict__,不经此路径;此处只拦截构造后对纪律红线的改写。
+        if self.__dict__.get("immutable", False):
+            raise ImmutableDoctrineError(f"纪律红线条目不可修改(字段 {name})")
+        super().__setattr__(name, value)
+
 
 class Doctrine(BaseModel):
     """doctrine 容器。"""

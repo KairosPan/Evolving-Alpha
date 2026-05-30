@@ -59,3 +59,16 @@ def test_doctrine_crud_with_immutable_protection():
     with pytest.raises(ValueError):
         doc.add(DoctrineEntry.from_seed({"section": "主升作战", "regime": "主升",
                                          "immutable": False, "guidance": "dup"}))
+
+
+def test_immutable_entry_blocks_direct_mutation():
+    import pytest
+    from youzi.harness.errors import ImmutableDoctrineError
+    e = DoctrineEntry.from_seed({"section": "纪律", "regime": "all", "immutable": True, "guidance": "g"})
+    with pytest.raises(ImmutableDoctrineError):
+        e.guidance = "篡改"
+    with pytest.raises(ImmutableDoctrineError):
+        e.immutable = False          # 不能翻转 immutable 再改
+    m = DoctrineEntry.from_seed({"section": "x", "regime": "主升", "immutable": False, "guidance": "g"})
+    m.guidance = "改了"               # 可变条目允许
+    assert m.guidance == "改了"

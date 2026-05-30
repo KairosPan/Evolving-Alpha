@@ -11,6 +11,7 @@ Outcome = Literal["win", "loss", "principle"]
 
 class Importance(BaseModel):
     """记忆重要度(可变)。weight = base × time_decay × regime_decay(双衰减,蓝图 §8)。"""
+    model_config = ConfigDict(validate_assignment=True)
     base: float = 1.0
     time_decay: float = 1.0
     regime_decay: float = 1.0
