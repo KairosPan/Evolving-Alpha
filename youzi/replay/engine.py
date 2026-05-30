@@ -20,7 +20,7 @@ class ReplayEngine:
         self._guard = AsOfGuard(self._days[0])
         self.guarded_source = GuardedSource(source, self._guard)
         self.history: list[float] = []      # 已走过日的 sentiment_raw
-        self._last_observed_i: int = -1     # 防 observe() + step() 双写 history
+        self._recorded: set[int] = set()    # 已入 history 的游标索引(幂等)
 
     @property
     def cursor(self) -> Date:
@@ -31,16 +31,15 @@ class ReplayEngine:
         as_of = DateTime.combine(day, Time(15, 0))   # 收盘快照
         st = build_market_state(day, self.guarded_source, list(self.history),
                                 as_of=as_of)
-        # 只在当日首次 observe 时把 sentiment_raw 计入历史(幂等)
-        if self._last_observed_i != self._i:
+        # 每游标只把 sentiment_raw 计入历史一次(幂等);不含未来
+        if self._i not in self._recorded:
             self.history.append(st.sentiment_raw)
-            self._last_observed_i = self._i
+            self._recorded.add(self._i)
         return st
 
     def step(self) -> bool:
-        """推进到下一交易日。到末日返回 False。迭代间不 reset(reset-free)。
-        自动 observe 当日以确保 history 被累积,即使调用方未显式 observe。"""
-        self.observe()   # 幂等:若已观察则不重复写 history
+        """推进到下一交易日。到末日返回 False。纯游标前进(reset-free)。
+        不取数、不改 history —— 与 observe() 正交。"""
         if self._i + 1 >= len(self._days):
             return False
         self._i += 1
@@ -55,4 +54,4 @@ class ReplayEngine:
         self._guard = AsOfGuard(day)
         self.guarded_source = GuardedSource(
             self.guarded_source._inner, self._guard)  # 重新包裹同一内层源
-        self._last_observed_i = -1   # 重置观察标记,允许在新游标位置重新 observe
+        # _recorded 保留:已记录的游标索引不重置,避免重访时重复计入 history
