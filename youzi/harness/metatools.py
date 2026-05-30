@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+from youzi.harness.edit_log import EditLog, EditRecord
+from youzi.harness.harness import HarnessState
+from youzi.harness.memory_item import Lesson
+from youzi.harness.skill import Skill
+
+
+class MetaTools:
+    """论文 meta-tool API:Agent/Refiner 通过它就地编辑 H=(p,K,M)。
+
+    每个方法先执行编辑(失败则抛错、不记日志),成功后追加一条 EditRecord。
+    """
+
+    def __init__(self, harness: HarnessState, log: EditLog | None = None) -> None:
+        self.h = harness
+        self.log = log or EditLog()
+
+    # ── K 技能 ──
+    def write_skill(self, skill: Skill) -> EditRecord:
+        self.h.skills.write(skill)
+        return self.log.append("write_skill", "skill", skill.skill_id, "create", skill.name_cn)
+
+    def patch_skill(self, skill_id: str, **fields) -> EditRecord:
+        self.h.skills.patch(skill_id, **fields)
+        return self.log.append("patch_skill", "skill", skill_id, "update", ",".join(fields))
+
+    def retire_skill(self, skill_id: str, permanent: bool = False) -> EditRecord:
+        self.h.skills.retire(skill_id, permanent=permanent)
+        return self.log.append("retire_skill", "skill", skill_id,
+                               "retired" if permanent else "dormant")
+
+    def revive_skill(self, skill_id: str) -> EditRecord:
+        self.h.skills.revive(skill_id)
+        return self.log.append("revive_skill", "skill", skill_id, "revive")
+
+    def promote_skill(self, skill_id: str) -> EditRecord:
+        self.h.skills.promote(skill_id)
+        return self.log.append("promote_skill", "skill", skill_id, "promote")
+
+    # ── M 记忆 ──
+    def process_memory(self, lesson: Lesson) -> EditRecord:
+        self.h.memory.add(lesson)
+        return self.log.append("process_memory", "memory", lesson.lesson_id, "create",
+                               lesson.lesson[:24])
+
+    def update_memory(self, lesson_id: str, **fields) -> EditRecord:
+        self.h.memory.update(lesson_id, **fields)
+        return self.log.append("process_memory", "memory", lesson_id, "update",
+                               ",".join(fields))
+
+    def demote_memory(self, lesson_id: str, factor: float) -> EditRecord:
+        self.h.memory.demote(lesson_id, factor)
+        return self.log.append("process_memory", "memory", lesson_id, "demote", str(factor))
+
+    # ── p doctrine ──
+    def rewrite_doctrine(self, section: str, new_guidance: str) -> EditRecord:
+        self.h.doctrine.rewrite(section, new_guidance)   # immutable -> 抛错, 不记日志
+        return self.log.append("rewrite_doctrine", "doctrine", section, "rewrite")
