@@ -37,6 +37,22 @@
 - git:已 `init`(main 分支,首提交 `77b615c`),`.gitignore` 忽略 macOS 垃圾/`.claude/settings.local.json`/数据产物。`core.quotepath=false`。
 - 31MB 的源 PDF 在 git 历史里(本地无碍;推远程想精简可转 git-lfs 或 untrack)。
 
-## 7. 立即下一步
-1. 执行 Phase-0a 计划:项目脚手架 → akshare 适配器+PIT 缓存 → MarketState 特征 → **reset-free 回放引擎(未来函数防火墙是核心可测组件)**。
-2. 之后 Phase-0b:种子注册表(把轮回 playbook 抽成 K/M/p 结构化种子)+ Hmin/Hexpert 基线 + 评测脚手架。
+## 7. 进度与下一步
+
+### Phase-0a 已完成 ✅(branch `phase-0a-data-replay`)
+数据·特征·回放地基已实现:`youzi/{schemas,data,features,replay}/` + 31 个离线测试全绿。两段评审 + 终审通过,**未来函数防火墙端到端 SOUND**(终审追了 6 条数据通道无泄漏;曾发现并修复 `reset_to` 的 history 侧信道泄漏,已加回归测试)。
+- 模块:`schemas/market.py`(frozen MarketState/EchelonRung)· `replay/firewall.py`(AsOfGuard/LookaheadError)· `data/source.py`(MarketDataSource 协议+AkshareSource+GuardedSource)· `data/{calendar,cache}.py`(PITStore)· `features/{echelon,blowup,money_effect,sentiment,builder}.py` · `replay/engine.py`(ReplayEngine:cursor/observe/step/reset_to,reset-free)。
+- 测试离线(FakeSource);akshare 仅由手动脚本 `scripts/smoke_akshare.py <YYYYMMDD>` 触网。
+
+### Phase-0b 待办
+1. 种子注册表:把轮回 playbook 抽成 K(模式/特征技能)/M(复盘教训+历史类比+失败签名)/p(doctrine)结构化种子。
+2. Hmin / Hexpert 基线 + 评测脚手架(对应蓝图 §6.9)。
+3. 龙虎榜 / 题材线(concept 成分)特征 + 仓位/组合层雏形。
+
+### Phase-0a 已知债务(终审标记,Phase-0b 处理)
+- **PITStore 尚未接入取数路径**:应作为 read-through/write-through 插进 `GuardedSource` 内层(guard 仍在外把关日期),实现"边跑边快照"PIT 累积;docstring 的"写一次不被未来修订覆盖"目前只是注释、无强制。
+- **幸存者偏差/PIT 成分未解**:akshare 概念成分是当前成分;退市/ST/改名/当时可交易池未处理。**当前防火墙只防"日期 lookahead",不防 survivorship**——别误以为绿灯=survivorship-safe。
+- **`raw_sentiment` 权重是硬编码先验**:K/M/p 落地后应从注册表取权重,否则与"四层全进化"矛盾。
+- **history 是内存平表、按位置索引**:长回放/重启不持久,且若 step() 跨索引未 observe() 会错位(非未来泄漏)。建议改 `dict[int,float]`/按日期键 + 持久化(PITStore 是自然落点)。
+- **akshare 列名回归锚**:先跑一次 `scripts/smoke_akshare.py <真实交易日>`,把实际 `cols=[...]` 记进本文件 §4 作回归基线(若 akshare 改列名,特征会优雅退化为空默认而非崩溃/泄漏)。
+- `as_of` 目前固定 15:00 收盘戳;日内 fill-feasibility/分时出货检测需 sub-day 粒度(schema 已是 datetime,前向兼容)。
