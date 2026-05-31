@@ -16,6 +16,7 @@ def test_build_report_aggregates():
     ]
     rep = build_report(scored, n_decisions=4, n_no_trade=1)
     assert rep.n_candidates == 4 and rep.n_decisions == 4 and rep.n_no_trade == 1
+    assert rep.horizon == 1               # 默认
     assert rep.hit_rate == 0.5            # 2 continued / 4
     assert rep.nuke_rate == 0.25          # 1 nuked / 4
     assert abs(rep.mean_score - (1 - 1 + 1 + 0) / 4) < 1e-9   # 0.25
@@ -31,6 +32,11 @@ def test_build_report_empty():
     rep = build_report([], n_decisions=3, n_no_trade=3)
     assert rep.n_candidates == 0 and rep.hit_rate == 0.0 and rep.mean_score == 0.0
     assert rep.by_pattern == {}
+
+
+def test_build_report_horizon_passthrough():
+    rep = build_report([], n_decisions=3, n_no_trade=3, horizon=2)
+    assert rep.horizon == 2
 
 
 def test_build_report_all_nuked():

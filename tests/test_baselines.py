@@ -37,3 +37,12 @@ def test_highest_board_policy_no_limit_up():
         StockSnapshot(code="C", name="炸", status="blowup")])
     pkg = HighestBoardPolicy().decide(_state(), empty)
     assert pkg.candidates == [] and pkg.no_trade_reason
+
+
+def test_highest_board_policy_ties_pick_all():
+    u = CandidateUniverse.from_stocks([
+        StockSnapshot(code="A", name="甲", status="limit_up", boards=5),
+        StockSnapshot(code="B", name="乙", status="limit_up", boards=5),
+        StockSnapshot(code="C", name="丙", status="limit_up", boards=2)])
+    pkg = HighestBoardPolicy().decide(_state(), u)
+    assert {c.code for c in pkg.candidates} == {"A", "B"}

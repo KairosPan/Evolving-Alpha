@@ -29,6 +29,7 @@ class EvalReport(BaseModel):
     n_decisions: int
     n_no_trade: int
     n_candidates: int
+    horizon: int = 1         # 延迟打分窗口(尾部不足 horizon 的决策被丢弃)
     hit_rate: float          # continued / n_candidates
     nuke_rate: float         # nuked / n_candidates
     mean_score: float        # 期望分(expectancy)
@@ -47,7 +48,7 @@ def _agg(items: list[ScoredCandidate]) -> tuple[float, float, float]:
 
 
 def build_report(scored: list[ScoredCandidate], n_decisions: int,
-                 n_no_trade: int) -> EvalReport:
+                 n_no_trade: int, horizon: int = 1) -> EvalReport:
     hit, nuke, mean = _agg(scored)
     patterns: dict[str, list[ScoredCandidate]] = {}
     for s in scored:
@@ -57,5 +58,5 @@ def build_report(scored: list[ScoredCandidate], n_decisions: int,
         h, nk, m = _agg(items)
         by_pattern[pat] = PatternStat(n=len(items), hit_rate=h, nuke_rate=nk, mean_score=m)
     return EvalReport(n_decisions=n_decisions, n_no_trade=n_no_trade,
-                      n_candidates=len(scored), hit_rate=hit, nuke_rate=nuke,
-                      mean_score=mean, by_pattern=by_pattern)
+                      n_candidates=len(scored), horizon=horizon, hit_rate=hit,
+                      nuke_rate=nuke, mean_score=mean, by_pattern=by_pattern)

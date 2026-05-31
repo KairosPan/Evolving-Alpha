@@ -38,3 +38,20 @@ def test_walk_forward_no_trade_yields_empty_report():
         NoTradePolicy())
     assert rep.n_decisions == 3 and rep.n_no_trade == 3 and rep.n_candidates == 0
     assert rep.hit_rate == 0.0
+
+
+def test_walk_forward_dedups_candidate_codes():
+    from youzi.eval.decision import Candidate, DecisionPackage
+    class DupPolicy:
+        def decide(self, state, universe):
+            return DecisionPackage(date=state.date, candidates=[
+                Candidate(code="A", pattern="t"), Candidate(code="A", pattern="t")])
+    rep = WalkForwardEval(_src(), date(2024, 6, 26), date(2024, 6, 28), horizon=1).run(DupPolicy())
+    # day0+day1 各去重为 1 个候选(day2 无次日丢弃)= 2
+    assert rep.n_candidates == 2
+
+
+def test_walk_forward_horizon_exceeds_range_empty():
+    rep = WalkForwardEval(_src(), date(2024, 6, 26), date(2024, 6, 28), horizon=9).run(
+        HighestBoardPolicy())
+    assert rep.n_candidates == 0 and rep.horizon == 9   # 无决策能凑满 horizon
