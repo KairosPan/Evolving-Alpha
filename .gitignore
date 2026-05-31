@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*.egg-info/
 
 # Data / model artifacts (大文件与生成物,避免污染版本库)
 /data/
