@@ -52,7 +52,8 @@
 - **Phase-1 就绪债务(终审标记,非阻塞)**:① rollback 后旧 `mgr.tools/harness` 引用静默操作废弃态(已 doc;Phase-1 可加 epoch/失效句柄);② 无自动 checkpoint(Refiner loop 需 checkpoint 策略,如每周期/编辑前);③ 全量快照成本(~68KB/次,频繁则需保留/delta);④ before-image payload 仅审计、非 delta-replay 完整(不记派生字段副作用);⑤ 无并发锁(多进程共享 store 会 clobber);⑥ MetaTools.h/log 未强封装(债务#3)、⑦ 3 条种子 token(债务#6,seeds/README)。
 - **Phase-0c 已完成并入 main**(`youzi/universe/{stock,universe}.py` + source._RENAME 扩展):**候选 universe / 个股快照层**——`StockSnapshot`(frozen PIT,status=涨停/炸板/跌停,boards 等缺失诚实 None)+ `CandidateUniverse`(按 code 索引+by_status/by_min_boards/by_industry,dup-reject,__bool__)+ `build_universe(source,day)`(三池合成,涨停 last-wins,NaT/缺列→None via pd.isna,经 GuardedSource 防火墙)。终审:per-field source 映射无孤儿、真实 dtype 鲁棒、防火墙复用 holds。111 测试绿,subagent-driven 两段评审+终审 READY。
   - **⚠ 真实 akshare 列名待 smoke 核对(离线测试测不到)**:跌停(dtgc)池封单列是 `封单资金` 而非 `封板资金` → 当前 `seal_amount` 对跌停股会是 None;zt 池可能用 `最后封板时间` 而非 `首次封板时间`。**依赖个股字段前必须跑 `scripts/smoke_akshare.py <真实交易日>` 核对并修 `_RENAME`**。
-- **roadmap**:Phase-0c 候选 universe → **Phase-0d 评测脚手架+已实现未来 oracle**(选股质量验收尺,需 universe 才能按 code 评)→ Hmin/Hexpert 基线 → 龙虎榜/题材线特征 + 仓位/组合层 → **Phase-1 = G 子 Agent + act→Refiner 闭环**(meta-tool+持久化+回滚底座已就绪)。
+- **Phase-0d 计划已写**(`docs/superpowers/plans/2026-05-31-phase0d-eval-oracle.md`):**评测脚手架 + 已实现未来 oracle**——`DecisionPolicy` 协议 + `Candidate/DecisionPackage` + **oracle(pool-membership 类别:continued/faded/nuked)** + `EvalReport`(hit/nuke/expectancy+by_pattern)+ `WalkForwardEval`(**延迟打分**保持未来函数防火墙)+ 平凡基线(NoTrade/HighestBoard)。oracle 不依赖待核对的个股字段(只用 code+所属池),**不被列名债务阻塞**。horizon 默认 1(次日)。
+- **roadmap**:✅0c universe → Phase-0d 评测/oracle(进行中)→ Hmin/Hexpert 基线(需 LLM 或形式化触发器,Phase-1 起)→ 龙虎榜/题材线 + 仓位/组合层 → **Phase-1 = G 子 Agent(LLM)+ act→Refiner 闭环**(meta-tool+持久化+回滚+universe+评测尺 就绪)。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
 - **PITStore 尚未接入取数路径**:应作为 read-through/write-through 插进 `GuardedSource` 内层(guard 仍在外把关日期),实现"边跑边快照"PIT 累积;docstring 的"写一次不被未来修订覆盖"目前只是注释、无强制。
