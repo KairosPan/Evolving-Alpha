@@ -30,3 +30,39 @@ def test_universe_rejects_duplicate_code():
 def test_empty_universe_is_truthy():
     u = CandidateUniverse.from_stocks([])
     assert bool(u) is True and len(u) == 0          # 杀 falsy-trap(0b-3 教训)
+
+
+def test_build_universe_merges_three_pools():
+    from datetime import date
+    import pandas as pd
+    from youzi.universe.universe import build_universe
+    from tests.conftest import FakeSource
+
+    d = date(2024, 6, 27)
+    frames = {
+        ("zt", d): pd.DataFrame({"code": ["1", "2"], "name": ["龙", "中"],
+                                 "boards": [7, 3], "pct": [10.0, 10.0],
+                                 "seal_amount": [8e8, 2e8], "industry": ["芯片", "芯片"]}),
+        ("blowup", d): pd.DataFrame({"code": ["3"], "name": ["炸"], "pct": [3.0],
+                                     "blowups": [2], "industry": ["军工"]}),
+        ("dt", d): pd.DataFrame({"code": ["4"], "name": ["跌"], "pct": [-10.0],
+                                 "industry": ["军工"]}),
+    }
+    u = build_universe(FakeSource(frames, [d]), d)
+    assert len(u) == 4
+    assert u.get("1").status == "limit_up" and u.get("1").boards == 7
+    assert u.get("1").seal_amount == 8e8
+    assert u.get("3").status == "blowup" and u.get("3").blowup_count == 2
+    assert u.get("4").status == "limit_down"
+
+
+def test_build_universe_empty_day():
+    from datetime import date
+    import pandas as pd
+    from youzi.universe.universe import build_universe
+    from tests.conftest import FakeSource
+    d = date(2024, 6, 27)
+    empty = {("zt", d): pd.DataFrame(), ("blowup", d): pd.DataFrame(),
+             ("dt", d): pd.DataFrame()}
+    u = build_universe(FakeSource(empty, [d]), d)
+    assert len(u) == 0 and bool(u) is True
