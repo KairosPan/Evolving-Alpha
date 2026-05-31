@@ -4,13 +4,15 @@ from datetime import date as Date
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from youzi.eval.oracle import Outcome
+
 
 class ScoredCandidate(BaseModel):
     model_config = ConfigDict(frozen=True)
     decision_date: Date
     code: str
     pattern: str
-    outcome: str
+    outcome: Outcome
     score: float
 
 
@@ -18,6 +20,7 @@ class PatternStat(BaseModel):
     model_config = ConfigDict(frozen=True)
     n: int
     hit_rate: float
+    nuke_rate: float
     mean_score: float
 
 
@@ -51,8 +54,8 @@ def build_report(scored: list[ScoredCandidate], n_decisions: int,
         patterns.setdefault(s.pattern, []).append(s)
     by_pattern: dict[str, PatternStat] = {}
     for pat, items in patterns.items():
-        h, _, m = _agg(items)
-        by_pattern[pat] = PatternStat(n=len(items), hit_rate=h, mean_score=m)
+        h, nk, m = _agg(items)
+        by_pattern[pat] = PatternStat(n=len(items), hit_rate=h, nuke_rate=nk, mean_score=m)
     return EvalReport(n_decisions=n_decisions, n_no_trade=n_no_trade,
                       n_candidates=len(scored), hit_rate=hit, nuke_rate=nuke,
                       mean_score=mean, by_pattern=by_pattern)

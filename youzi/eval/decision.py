@@ -16,11 +16,16 @@ class Candidate(BaseModel):
     name: str = ""
     pattern: str = ""              # 命中的模式/skill_id(策略声明,用于 by_pattern 归因)
     reason: str = ""
-    confidence: float = 0.5
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class DecisionPackage(BaseModel):
-    """某交易日的决策包(co-pilot 输出的 v1 子集:候选池 + 不参与理由)。"""
+    """某交易日的决策包(co-pilot 输出的 v1 子集:候选池 + 不参与理由)。
+
+    约定:`candidates` 内 `code` 应唯一——策略若返回重复 code,会在指标里
+    被重复计数(double-count)。去重/校验归 policy 或 WalkForwardEval 契约负责
+    (Bundle B 实现),本 schema 不强制。
+    """
     model_config = ConfigDict(frozen=True)
     date: Date
     candidates: list[Candidate] = Field(default_factory=list)

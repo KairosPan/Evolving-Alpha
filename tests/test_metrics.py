@@ -21,11 +21,19 @@ def test_build_report_aggregates():
     assert abs(rep.mean_score - (1 - 1 + 1 + 0) / 4) < 1e-9   # 0.25
     hb = rep.by_pattern["highest_board"]
     assert hb.n == 2 and hb.hit_rate == 0.5 and hb.mean_score == 0.0
+    assert hb.nuke_rate == 0.5                # highest_board: 1 nuked of 2
     w2s = rep.by_pattern["w2s"]
     assert w2s.n == 2 and w2s.hit_rate == 0.5 and w2s.mean_score == 0.5
+    assert w2s.nuke_rate == 0.0
 
 
 def test_build_report_empty():
     rep = build_report([], n_decisions=3, n_no_trade=3)
     assert rep.n_candidates == 0 and rep.hit_rate == 0.0 and rep.mean_score == 0.0
     assert rep.by_pattern == {}
+
+
+def test_build_report_all_nuked():
+    scored = [_sc("A", "p", "nuked", -1.0), _sc("B", "p", "nuked", -1.0)]
+    rep = build_report(scored, n_decisions=2, n_no_trade=0)
+    assert rep.hit_rate == 0.0 and rep.nuke_rate == 1.0 and rep.mean_score == -1.0

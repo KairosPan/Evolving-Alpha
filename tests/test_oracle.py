@@ -21,6 +21,13 @@ def test_pool_record_and_get():
     assert rec.get(date(2024, 6, 29)) is None
 
 
+def test_pool_record_same_day_overwrites():
+    rec = PoolRecord(); d = date(2024, 6, 28)
+    rec.record(d, _uni(["A"], [], []))
+    rec.record(d, _uni(["B"], [], []))      # 同日重录覆盖
+    assert rec.get(d).limit_up == frozenset({"B"})
+
+
 def test_outcome_categories():
     mem = DayMembership(limit_up=frozenset({"A"}), blowup=frozenset({"C"}),
                         limit_down=frozenset({"D"}))
