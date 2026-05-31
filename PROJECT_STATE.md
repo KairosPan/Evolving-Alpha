@@ -54,7 +54,9 @@
   - **⚠ 真实 akshare 列名待 smoke 核对(离线测试测不到)**:跌停(dtgc)池封单列是 `封单资金` 而非 `封板资金` → 当前 `seal_amount` 对跌停股会是 None;zt 池可能用 `最后封板时间` 而非 `首次封板时间`。**依赖个股字段前必须跑 `scripts/smoke_akshare.py <真实交易日>` 核对并修 `_RENAME`**。
 - **Phase-0d 已完成并入 main**(`youzi/eval/{decision,oracle,metrics,baselines,walk_forward}.py`):**评测脚手架 + 已实现未来 oracle**——`DecisionPolicy` 协议 + `Candidate/DecisionPackage`(frozen)+ **oracle(pool-membership 类别 continued/faded/nuked + SCORE)** + `EvalReport`(hit/nuke/expectancy+by_pattern+horizon)+ `WalkForwardEval`(**延迟打分**:t 决策、t+horizon 用已录成员打分,防火墙**由构造保证**——策略只拿无 source 句柄的 frozen 快照)+ 平凡基线(NoTrade/HighestBoard=Hmin floor)。终审:eval loop sound、firewall airtight、oracle leak-free、Phase-1 可用同一把尺量。129 测试绿,subagent-driven 两段评审+终审 READY。
   - **Phase-1 评测债务(非阻塞)**:① v1 oracle 只看 t+horizon 单日,N 日窗口/收益幅度 oracle(需 OHLCV)是自然扩展;② by-regime 分层需 G_cycle 分类器(Phase-1);③ HighestBoard 平局选全部→n_candidates 偏大,比 LLM agent 时需归一;④ 无成本/滑点,expectancy 是毛收益,别当 tradeable edge。
-- **roadmap**:✅0c universe → Phase-0d 评测/oracle(进行中)→ Hmin/Hexpert 基线(需 LLM 或形式化触发器,Phase-1 起)→ 龙虎榜/题材线 + 仓位/组合层 → **Phase-1 = G 子 Agent(LLM)+ act→Refiner 闭环**(meta-tool+持久化+回滚+universe+评测尺 就绪)。
+- **Phase-1a 计划已写**(`docs/superpowers/plans/2026-05-31-phase1a-llm-agent.md`):**LLM Agent(act 半环)**——`youzi/llm`(LLMClient 协议 + MockLLMClient + DeepSeekClient lazy)+ `youzi/agent`(prompt 把 H=(p,K,M)+状态机渲染进系统提示;parse 鲁棒+幻觉 code 过滤+兜底;`LLMAgentPolicy` 实现 DecisionPolicy)。即刻可进 Phase-0d `WalkForwardEval` 量化,**离线用 MockLLM 测**,DeepSeek 仅手动 smoke(顺带核 akshare 列名)。
+- **Phase-1 分解**:**1a Agent(act,本计划)** → 1b 轨迹记录 + **Refiner**(每日复盘→meta-tool 编辑 H,真正的自进化)→ 1c 协同学习外环(PRM+teacher relabel+LoRA)。
+- **roadmap**:✅0a/种子/0b/0c/0d 地基 → Phase-1a Agent(进行中)→ 1b Refiner 内环闭环 → 1c 协同学习 → 龙虎榜/题材线 + 仓位/组合层 + N日oracle/regime分层 等增强。底座(meta-tool+持久化+回滚+universe+评测尺)全就绪。
 
 ### Phase-0a 已知债务(终审标记,Phase-0b 处理)
 - **PITStore 尚未接入取数路径**:应作为 read-through/write-through 插进 `GuardedSource` 内层(guard 仍在外把关日期),实现"边跑边快照"PIT 累积;docstring 的"写一次不被未来修订覆盖"目前只是注释、无强制。
