@@ -5,7 +5,8 @@ Run: DEEPSEEK_API_KEY=... python scripts/smoke_deepseek_agent.py 20240627
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import datetime, time
+from pathlib import Path
 
 from youzi.data.source import AkshareSource
 from youzi.replay.firewall import AsOfGuard
@@ -22,16 +23,15 @@ def main(ymd: str) -> None:
     src = AkshareSource()
     guard = AsOfGuard(day)
     gs = GuardedSource(src, guard)
-    state = build_market_state(day, gs, history=[], as_of=datetime.now())
+    state = build_market_state(day, gs, history=[], as_of=datetime.combine(day, time(15, 0)))
     universe = build_universe(gs, day)
     print(f"[{day}] 涨停候选 {len(universe.by_status('limit_up'))} 只")
 
-    from pathlib import Path
     seeds = Path(__file__).resolve().parent.parent / "seeds"
     agent = LLMAgentPolicy(load_seeds(seeds), DeepSeekClient())
     pkg = agent.decide(state, universe)
     print("regime/候选:")
-    print("  no_trade:", pkg.no_trade_reason or "(有候选)")
+    print("  no_trade:", pkg.no_trade_reason or ("(有候选)" if pkg.candidates else "(空仓,LLM未给原因)"))
     for c in pkg.candidates:
         print(f"  {c.code} {c.name} 模式={c.pattern} 信心={c.confidence} 理由={c.reason}")
 
