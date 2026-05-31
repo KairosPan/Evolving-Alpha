@@ -66,3 +66,23 @@ def test_build_universe_empty_day():
              ("dt", d): pd.DataFrame()}
     u = build_universe(FakeSource(empty, [d]), d)
     assert len(u) == 0 and bool(u) is True
+
+
+def test_build_universe_handles_nat_and_missing_fields():
+    from datetime import date
+    import pandas as pd
+    from youzi.universe.universe import build_universe
+    from tests.conftest import FakeSource
+    d = date(2024, 6, 27)
+    frames = {
+        ("zt", d): pd.DataFrame(),
+        ("blowup", d): pd.DataFrame(),
+        # boards / industry 列缺失; first_seal_time = NaT
+        ("dt", d): pd.DataFrame({"code": ["4"], "name": ["跌"], "pct": [-10.0],
+                                 "first_seal_time": [pd.NaT]}),
+    }
+    s = build_universe(FakeSource(frames, [d]), d).get("4")
+    assert s.status == "limit_down"
+    assert s.first_seal_time is None     # NaT -> None(不存成 "NaT")
+    assert s.boards is None              # 缺列 -> None
+    assert s.industry is None

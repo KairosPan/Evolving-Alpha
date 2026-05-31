@@ -45,19 +45,19 @@ class CandidateUniverse:
 def _to_snapshot(row: dict, status: str) -> StockSnapshot:
     def g(key, cast=None):
         v = row.get(key)
-        if v is None or (isinstance(v, float) and pd.isna(v)):
+        if v is None or pd.isna(v):
             return None
         return cast(v) if cast else v
     return StockSnapshot(
         code=str(row["code"]),
         name=str(row.get("name", "")),
         status=status,
-        boards=(int(g("boards")) if g("boards") is not None else None),
+        boards=(int(b) if (b := g("boards")) is not None else None),
         pct=g("pct", float),
         seal_amount=g("seal_amount", float),
         turnover_rate=g("turnover_rate", float),
         first_seal_time=g("first_seal_time", str),
-        blowup_count=(int(g("blowups")) if g("blowups") is not None else None),
+        blowup_count=(int(bc) if (bc := g("blowups")) is not None else None),
         industry=g("industry", str),
         float_mcap=g("float_mcap", float),
     )
