@@ -43,3 +43,16 @@ def test_parse_no_trade_passthrough():
     raw = '{"candidates":[],"no_trade_reason":"退潮空仓"}'
     pkg = parse_decision(raw, date(2024, 6, 27), _uni())
     assert pkg.candidates == [] and pkg.no_trade_reason == "退潮空仓"
+
+
+def test_parse_null_fields_become_empty_string():
+    raw = '{"candidates":[{"code":"000001","pattern":null,"reason":null,"confidence":0.5}],"no_trade_reason":null}'
+    pkg = parse_decision(raw, date(2024, 6, 27), _uni())
+    assert pkg.no_trade_reason == ""              # null -> "" 而非 "None"
+    assert pkg.candidates[0].pattern == "" and pkg.candidates[0].reason == ""
+
+
+def test_parse_int_code_matches_universe():
+    raw = '{"candidates":[{"code":1,"pattern":"x","confidence":0.5}]}'
+    pkg = parse_decision(raw, date(2024, 6, 27), _uni())   # _uni() 含 000001
+    assert {c.code for c in pkg.candidates} == {"000001"}   # int 1 -> "000001"

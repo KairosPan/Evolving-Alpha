@@ -9,6 +9,7 @@ from youzi.universe.universe import CandidateUniverse
 
 def _extract_json(raw: str) -> str:
     """去 markdown 围栏 / 取第一个 { 到最后一个 } 的子串。"""
+    # TODO Phase-1b: prose 或 thinking blob 在 JSON 前会让 first-{-to-last-} 失败(目前安全兜底为空仓);后续改贪婪 json 扫描
     s = (raw or "").strip()
     if "```" in s:
         # 去掉 ```json ... ``` 围栏
@@ -29,7 +30,7 @@ def _clamp01(v: object, default: float = 0.5) -> float:
 
 
 def _match_code(raw_code: object, universe: CandidateUniverse):
-    code = str(raw_code or "").strip()
+    code = (str(raw_code) if raw_code is not None else "").strip()
     if not code:
         return None
     return universe.get(code) or universe.get(code.zfill(6))
@@ -55,7 +56,7 @@ def parse_decision(raw: str, date: Date, universe: CandidateUniverse) -> Decisio
         seen.add(snap.code)
         cands.append(Candidate(
             code=snap.code, name=snap.name,
-            pattern=str(c.get("pattern", "")), reason=str(c.get("reason", "")),
+            pattern=str(c.get("pattern") or ""), reason=str(c.get("reason") or ""),
             confidence=_clamp01(c.get("confidence", 0.5))))
     return DecisionPackage(date=date, candidates=cands,
-                           no_trade_reason=str(data.get("no_trade_reason", "")))
+                           no_trade_reason=str(data.get("no_trade_reason") or ""))
