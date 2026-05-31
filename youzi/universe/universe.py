@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from youzi.universe.stock import StockSnapshot
+from youzi.universe.stock import StockSnapshot, StockStatus
 
 
 class CandidateUniverse:
@@ -24,11 +24,11 @@ class CandidateUniverse:
     def all(self) -> list[StockSnapshot]:
         return list(self._stocks.values())
 
-    def by_status(self, status: str) -> list[StockSnapshot]:
+    def by_status(self, status: StockStatus) -> list[StockSnapshot]:
         return [s for s in self._stocks.values() if s.status == status]
 
     def by_min_boards(self, n: int) -> list[StockSnapshot]:
-        return [s for s in self._stocks.values() if s.boards >= n]
+        return [s for s in self._stocks.values() if s.boards is not None and s.boards >= n]
 
     def by_industry(self, industry: str) -> list[StockSnapshot]:
         return [s for s in self._stocks.values() if s.industry == industry]

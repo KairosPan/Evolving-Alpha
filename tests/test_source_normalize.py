@@ -16,8 +16,6 @@ def test_normalize_empty_has_blowups_column():
 
 
 def test_normalize_maps_per_stock_fields():
-    import pandas as pd
-    from youzi.data.source import _normalize
     df = pd.DataFrame({"代码": ["000001"], "名称": ["甲"], "连板数": [3],
                        "涨跌幅": [10.0], "封板资金": [8.0e8], "换手率": [5.5],
                        "首次封板时间": ["09:31:00"], "所属行业": ["银行"], "流通市值": [1.2e10]})

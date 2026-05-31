@@ -25,3 +25,8 @@ def test_stock_snapshot_status_validated():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         StockSnapshot(code="1", name="甲", status="不存在的状态")
+
+
+def test_minimal_limit_up_boards_unknown_is_none():
+    s = StockSnapshot(code="1", name="甲", status="limit_up")
+    assert s.boards is None      # 未提供时不臆造为 0
