@@ -11,6 +11,11 @@ from youzi.replay.firewall import AsOfGuard
 _RENAME = {
     "代码": "code", "名称": "name", "连板数": "boards",
     "涨跌幅": "pct", "炸板次数": "blowups", "昨日连板数": "boards",
+    "封板资金": "seal_amount",
+    "换手率": "turnover_rate",
+    "首次封板时间": "first_seal_time",
+    "所属行业": "industry",
+    "流通市值": "float_mcap",
 }
 
 
@@ -21,7 +26,7 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     out = out.loc[:, ~out.columns.duplicated()]  # 防 _RENAME 把多列映射到同名(如 boards)导致重复列
     if "code" in out.columns:
         out["code"] = out["code"].astype(str).str.zfill(6)
-    for col in ("boards", "pct", "blowups"):
+    for col in ("boards", "pct", "blowups", "seal_amount", "turnover_rate", "float_mcap"):
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     return out
