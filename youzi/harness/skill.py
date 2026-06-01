@@ -15,6 +15,7 @@ class SkillStats(BaseModel):
     n: int = 0
     wins: int = 0
     losses: int = 0
+    nukes: int = 0           # 被砸(nuked)次数;nuke_rate = nukes/n。由 apply_credit 维护
     ewma_winrate: float | None = None
     pnl_ratio: float | None = None
     expectancy: float | None = None
