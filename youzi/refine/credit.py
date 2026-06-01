@@ -46,6 +46,11 @@ def resolve_skill(pattern: str, harness: HarnessState) -> Skill | None:
     return None
 
 
+def _classify(outcome: str) -> tuple[bool, float, bool]:
+    """oracle outcome → (是否 win, SCORE, 是否 nuked)。单一分类源:SCORE/归类规则变动只改这里。"""
+    return outcome == "continued", SCORE[outcome], outcome == "nuked"
+
+
 class _Acc:
     __slots__ = ("n", "wins", "losses", "nukes", "score_sum")
 
@@ -57,13 +62,14 @@ class _Acc:
         self.score_sum = 0.0
 
     def add(self, oc: str) -> None:
+        win, score, nuked = _classify(oc)
         self.n += 1
-        self.score_sum += SCORE[oc]
-        if oc == "continued":
+        self.score_sum += score
+        if win:
             self.wins += 1
         else:
             self.losses += 1
-        if oc == "nuked":
+        if nuked:
             self.nukes += 1
 
     def to_credit(self, skill_id: str) -> SkillCredit:
@@ -89,11 +95,11 @@ def apply_credit(traj: Trajectory, harness: HarnessState, decay: float = 0.1) ->
             if skill is None:
                 unattr.add(sc.outcome)                # 未匹配:进 unattributed,不动技能 stats
                 continue
-            win = sc.outcome == "continued"
+            win, score, nuked = _classify(sc.outcome)
             skill.stats.record(win, decay)            # 更新 n/wins/losses/ewma
             m = skill.stats.expectancy if skill.stats.expectancy is not None else 0.0
-            skill.stats.expectancy = m + (SCORE[sc.outcome] - m) / skill.stats.n  # Welford 累计均值
-            if sc.outcome == "nuked":
+            skill.stats.expectancy = m + (score - m) / skill.stats.n  # Welford 累计均值
+            if nuked:
                 skill.stats.nukes += 1
             per.setdefault(skill.skill_id, _Acc()).add(sc.outcome)
     return CreditReport(
