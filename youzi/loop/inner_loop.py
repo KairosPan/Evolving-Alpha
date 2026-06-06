@@ -94,6 +94,8 @@ class InnerLoop:
         scored_steps: list[TrajectoryStep] = []
         per_step_credits: list = []
         scores: list[float] = []
+        refine_events: list[RefineEvent] = []
+        last_ckpt: int | None = None
         idx = 0
         while True:
             cursor = engine.cursor
@@ -112,7 +114,6 @@ class InnerLoop:
             drafts.append({"date": cursor, "market": state, "decision": decision,
                            "entries": entries, "scored": False, "outcomes": {}})
             pending.append(idx)
-            # 延迟打分(复刻 WalkForwardEval 机制)
             newly: list[TrajectoryStep] = []
             remaining: list[int] = []
             for j in pending:
@@ -137,14 +138,23 @@ class InnerLoop:
                 else:
                     remaining.append(j)
             pending = remaining
-            # 在线信用(每个刚评分步调一次 apply_credit,就地改 stats、不重复)+ 熔断分数序列
             for step in newly:
                 cr = apply_credit(Trajectory(steps=[step], horizon=cfg.horizon), self._mgr.harness)
                 per_step_credits.append(cr)
                 for sc in step.outcomes.values():
                     scores.append(sc.score)
+            # 每日 refine(有新证据 + 到节奏):checkpoint-before → refiner.refine 编辑 live H
+            if newly and (idx % cfg.refine_every == 0):
+                ver = self._mgr.checkpoint(label=f"pre-refine {cursor}")
+                last_ckpt = ver
+                win = scored_steps[-cfg.credit_window:]
+                win_traj = Trajectory(steps=win, horizon=cfg.horizon)
+                credit = merge_credit_reports(per_step_credits[-cfg.credit_window:])
+                sigs = extract_signatures(win_traj, self._mgr.harness)
+                report = self._refiner.refine(win_traj, credit, sigs)
+                refine_events.append(RefineEvent(date=cursor, checkpoint_version=ver, report=report))
             idx += 1
             if not engine.step():
                 break
         traj = Trajectory(steps=[TrajectoryStep(**d) for d in drafts], horizon=cfg.horizon)
-        return LoopReport(trajectory=traj, n_edits=len(self._mgr.log))
+        return LoopReport(trajectory=traj, refine_events=refine_events, n_edits=len(self._mgr.log))

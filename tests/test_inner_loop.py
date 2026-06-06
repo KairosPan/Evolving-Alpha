@@ -91,3 +91,25 @@ def test_run_interleaves_scoring_and_online_credit(tmp_path):
     # 在线信用:技能 longtou(pattern "龙头接力")被引用且 continued → stats 在 H 内已更新
     st = mgr.harness.skills.get("longtou").stats
     assert st.n == 2 and st.wins == 2          # 2 个已打分决策都归因到 longtou 且 continued
+
+
+def test_refine_edits_visible_next_day_resetfree(tmp_path):
+    src = _continued_src()
+    # refiner:refine1 在 K-pass 退役 longtou;p/M 空;之后全空(MockLLM 重复末元素)
+    refiner_scripts = ['{"ops": []}',
+                       '{"ops": [{"tool": "retire_skill", "args": {"skill_id": "longtou"},'
+                       ' "rationale": "示例退役"}]}',
+                       '{"ops": []}']
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], refiner_scripts,
+                      config=LoopConfig(breaker_min_samples=10_000))  # 不熔断
+    rep = loop.run()
+    # refine 每日触发(有新证据起):day1、day2 各一次
+    assert [e.date for e in rep.refine_events] == [date(2024, 6, 27), date(2024, 6, 28)]
+    assert rep.refine_events[0].checkpoint_version is not None
+    # reset-free:day1 决策(call#1)系统提示仍含 longtou;day2(call#2)已不含(退役于 day1 refine 后)
+    sys_day1 = loop._agent_llm.calls[1][0]
+    sys_day2 = loop._agent_llm.calls[2][0]
+    assert "龙头接力" in sys_day1
+    assert "龙头接力" not in sys_day2
+    # 编辑入 EditLog(带 rationale)
+    assert any(r.tool == "retire_skill" and r.rationale for r in mgr.log.records())
