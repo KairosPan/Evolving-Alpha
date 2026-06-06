@@ -95,7 +95,10 @@ class InnerLoop:
         per_step_credits: list = []
         scores: list[float] = []
         refine_events: list[RefineEvent] = []
+        breaker_events: list[BreakerEvent] = []
         last_ckpt: int | None = None
+        frozen = False
+        frozen_from: Date | None = None
         idx = 0
         while True:
             cursor = engine.cursor
@@ -143,8 +146,28 @@ class InnerLoop:
                 per_step_credits.append(cr)
                 for sc in step.outcomes.values():
                     scores.append(sc.score)
-            # 每日 refine(有新证据 + 到节奏):checkpoint-before → refiner.refine 编辑 live H
-            if newly and (idx % cfg.refine_every == 0):
+            # 能力地板熔断(自相对 + 绝对;只触发一次)
+            if not frozen and len(scores) >= cfg.breaker_min_samples:
+                baseline = sum(scores[:cfg.baseline_window]) / cfg.baseline_window
+                window = scores[-cfg.breaker_window:]
+                rolling = sum(window) / len(window)
+                reason: str | None = None
+                if rolling < cfg.floor_abs:
+                    reason = "rolling<floor_abs"
+                elif rolling < baseline - cfg.floor_rel_margin:
+                    reason = "rolling<baseline-margin"
+                if reason is not None:
+                    rolled: int | None = None
+                    if last_ckpt is not None:
+                        self._mgr.rollback_to(last_ckpt)
+                        self._rebind()
+                        rolled = last_ckpt
+                    frozen = True
+                    frozen_from = cursor
+                    breaker_events.append(BreakerEvent(date=cursor, rolling=rolling, baseline=baseline,
+                                                       reason=reason, rolled_back_to=rolled))
+            # 每日 refine(未冻结 + 有新证据 + 到节奏)
+            if not frozen and newly and (idx % cfg.refine_every == 0):
                 ver = self._mgr.checkpoint(label=f"pre-refine {cursor}")
                 last_ckpt = ver
                 win = scored_steps[-cfg.credit_window:]
@@ -157,4 +180,6 @@ class InnerLoop:
             if not engine.step():
                 break
         traj = Trajectory(steps=[TrajectoryStep(**d) for d in drafts], horizon=cfg.horizon)
-        return LoopReport(trajectory=traj, refine_events=refine_events, n_edits=len(self._mgr.log))
+        return LoopReport(trajectory=traj, refine_events=refine_events,
+                          breaker_events=breaker_events, frozen_from=frozen_from,
+                          n_edits=len(self._mgr.log))

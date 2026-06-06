@@ -113,3 +113,46 @@ def test_refine_edits_visible_next_day_resetfree(tmp_path):
     assert "龙头接力" not in sys_day2
     # 编辑入 EditLog(带 rationale)
     assert any(r.tool == "retire_skill" and r.rationale for r in mgr.log.records())
+
+
+def _nuke_src(n_days):
+    """每日 C_i 涨停;次日 C_i 跌停(被选后必 nuked)。"""
+    days = [date(2024, 6, 1) + timedelta(days=k) for k in range(n_days)]
+    frames = {}
+    for i, d in enumerate(days):
+        frames[("zt", d)] = pd.DataFrame({"code": [f"C{i}"], "name": [f"C{i}"], "boards": [1]})
+        if i >= 1:
+            frames[("dt", d)] = pd.DataFrame({"code": [f"C{i-1}"], "name": [f"C{i-1}"]})
+    return FakeSource(frames, days)
+
+
+def test_breaker_trips_rolls_back_and_freezes(tmp_path):
+    n = 8
+    src = _nuke_src(n)
+    agent_scripts = [_decision(f"C{i}") for i in range(n)]    # 每日选当日涨停 C_i
+    cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
+                     floor_abs=-0.5, refine_every=1)
+    loop, mgr = _loop(tmp_path, src, agent_scripts, ['{"ops": []}'], config=cfg)
+    rep = loop.run()
+    # 每个被选 code 次日跌停 → 全 nuked(-1)→ rolling 跌破 floor_abs(-0.5)→ 熔断
+    assert len(rep.breaker_events) == 1
+    be = rep.breaker_events[0]
+    assert be.reason in ("rolling<floor_abs", "rolling<baseline-margin")
+    assert be.rolled_back_to is not None          # 熔断前已有 refine → 有 checkpoint
+    assert rep.frozen_from == be.date
+    # 冻结后不再有 refine
+    assert all(e.date < rep.frozen_from for e in rep.refine_events)
+
+
+def test_breaker_freezes_without_checkpoint_when_no_refine(tmp_path):
+    n = 6
+    src = _nuke_src(n)
+    agent_scripts = [_decision(f"C{i}") for i in range(n)]
+    # refine_every 极大 → 永不 refine → 熔断时无 checkpoint
+    cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
+                     floor_abs=-0.5, refine_every=10_000)
+    loop, mgr = _loop(tmp_path, src, agent_scripts, ['{"ops": []}'], config=cfg)
+    rep = loop.run()
+    assert len(rep.breaker_events) == 1
+    assert rep.breaker_events[0].rolled_back_to is None       # 无 checkpoint → 只冻结
+    assert rep.refine_events == []
