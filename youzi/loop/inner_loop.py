@@ -19,14 +19,15 @@ from youzi.universe.universe import build_universe
 
 
 class LoopConfig(BaseModel):
-    horizon: int = 1                  # 延迟打分窗口(同 WalkForwardEval)
-    refine_every: int = 1             # 每 N 交易日 refine 一次(默认每日)
-    credit_window: int = 10           # 给 refiner 的证据窗口(最近 N 个已评分步)
-    breaker_window: int = 20          # 滚动 expectancy 窗口(最近 N 个已评分候选)
-    baseline_window: int = 20         # 基线 = 前 N 个已评分候选均值
-    floor_abs: float = -0.2           # 绝对地板:rolling < floor_abs → 熔断
-    floor_rel_margin: float = 0.15    # 相对地板:rolling < baseline - margin → 熔断
-    breaker_min_samples: int = 40     # 已评分候选数 >= 此值才可能熔断
+    # 整数窗口/节奏一律 >=1(防退化配置:除零/空窗口;仿 WalkForwardEval horizon>=1 先例)
+    horizon: int = Field(default=1, ge=1)            # 延迟打分窗口(同 WalkForwardEval)
+    refine_every: int = Field(default=1, ge=1)       # 每 N 交易日 refine 一次(默认每日)
+    credit_window: int = Field(default=10, ge=1)     # 给 refiner 的证据窗口(最近 N 个已评分步)
+    breaker_window: int = Field(default=20, ge=1)    # 滚动 expectancy 窗口(最近 N 个已评分候选)
+    baseline_window: int = Field(default=20, ge=1)   # 基线 = 前 N 个已评分候选均值
+    floor_abs: float = Field(default=-0.2, ge=-1.0, le=1.0)   # 绝对地板:rolling < floor_abs → 熔断(SCORE∈[−1,1])
+    floor_rel_margin: float = Field(default=0.15, ge=0.0)     # 相对地板:rolling < baseline - margin → 熔断
+    breaker_min_samples: int = Field(default=40, ge=1)        # 已评分候选数 >= 此值才可能熔断
 
 
 class RefineEvent(BaseModel):
@@ -167,8 +168,8 @@ class InnerLoop:
                     frozen_from = cursor
                     breaker_events.append(BreakerEvent(date=cursor, rolling=rolling, baseline=baseline,
                                                        reason=reason, rolled_back_to=rolled))
-            # 每日 refine(未冻结 + 有新证据 + 到节奏)
-            if not frozen and newly and (idx % cfg.refine_every == 0):
+            # 每日 refine(未冻结 + 有新**评分证据** + 到节奏):空仓步 outcomes={} 不算证据,跳过省 LLM/磁盘
+            if not frozen and any(s.outcomes for s in newly) and (idx % cfg.refine_every == 0):
                 ver = self._mgr.checkpoint(label=f"pre-refine {cursor}")
                 last_ckpt = ver
                 win = scored_steps[-cfg.credit_window:]

@@ -156,3 +156,25 @@ def test_breaker_freezes_without_checkpoint_when_no_refine(tmp_path):
     assert len(rep.breaker_events) == 1
     assert rep.breaker_events[0].rolled_back_to is None       # 无 checkpoint → 只冻结
     assert rep.refine_events == []
+
+
+def test_loop_config_rejects_degenerate():
+    from pydantic import ValidationError
+    for bad in ({"horizon": 0}, {"breaker_window": 0}, {"baseline_window": 0},
+                {"breaker_min_samples": 0}, {"refine_every": 0}, {"credit_window": 0}):
+        with pytest.raises(ValidationError):
+            LoopConfig(**bad)
+
+
+def test_refine_skips_zero_evidence_no_trade_days(tmp_path):
+    # 冰点:zt 池空、agent 空仓 → 所有已评分步 outcomes={} → 不应触发 refine(省 LLM/磁盘)
+    days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
+    frames = {("zt", d): pd.DataFrame() for d in days}
+    src = FakeSource(frames, days)
+    no_trade = '{"candidates": [], "no_trade_reason": "冰点空仓"}'
+    loop, mgr = _loop(tmp_path, src, [no_trade], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000))
+    rep = loop.run()
+    assert rep.trajectory.n_no_trade() == 3
+    assert rep.refine_events == []                # 零证据 → 不 refine
+    assert loop._refiner_llm.calls == []          # refiner LLM 从未被调
