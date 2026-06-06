@@ -46,7 +46,7 @@ class SkillRegistry:
 
     # ── CRUD + 生命周期 ──────────────────────────────────────────────────
 
-    _PATCH_FORBIDDEN = {"status", "phases", "ecologies", "applies_all"}
+    _PATCH_FORBIDDEN = {"status", "phases", "ecologies", "applies_all", "stats"}
 
     def _require(self, skill_id: str) -> Skill:
         s = self._skills.get(skill_id)
@@ -63,7 +63,7 @@ class SkillRegistry:
         s = self._require(skill_id)
         bad = self._PATCH_FORBIDDEN & fields.keys()
         if bad:
-            raise ValueError(f"不可直接 patch {sorted(bad)}:status 用 retire/revive/promote;phases/ecologies 派生自 applicable_regime")
+            raise ValueError(f"不可直接 patch {sorted(bad)}:status 用 retire/revive/promote;phases/ecologies 派生自 applicable_regime;stats 是观测字段(由 apply_credit 维护,Refiner 不可改)")
         snapshot = {k: getattr(s, k) for k in fields if k in type(s).model_fields}
         try:
             for k, v in fields.items():

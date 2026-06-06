@@ -80,6 +80,110 @@ def test_apply_op_reject_malformed_skill_args():
     assert not ok and ("ValidationError" in res.reason or "validation" in res.reason.lower())
 
 
+# ── 终审 blocking 回归:观测字段写保护 + 非字符串 regime 不崩 + write_skill 状态钳制 ──
+
+def _legal_skill(skill_id="newk", **over):
+    d = {"skill_id": skill_id, "name_cn": "新技能", "type": "pattern",
+         "applicable_regime": ["主升"], "trigger": "t", "entry": "e",
+         "exit_stop": "x", "status": "incubating"}
+    d.update(over)
+    return d
+
+
+def test_apply_op_reject_patch_stats():
+    # FIX 1(a)/(c)edit:Refiner 不可 patch 观测字段 stats(由 apply_credit 维护)
+    r, h, meta = _refiner()
+    ok, res = r._apply_op(RefineOp(tool="patch_skill",
+                                   args={"skill_id": "a", "stats": {"n": 999, "wins": 999}},
+                                   rationale="想伪造战绩"), "K", PASS_K())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert "stats" in res.reason
+    assert h.skills.get("a").stats.n == 0          # 未被篡改
+    assert len(meta.log) == 0                       # 未记日志
+
+
+def test_apply_op_reject_update_importance():
+    # FIX 1(b)/(c)edit:Refiner 不可 update 观测字段 importance(由 demote/时间衰减管理)
+    r, h, meta = _refiner()
+    ok, res = r._apply_op(RefineOp(tool="update_memory",
+                                   args={"lesson_id": "l1", "importance": {"base": 99.0}},
+                                   rationale="想拉高重要度"), "M", PASS_M())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert h.memory.get("l1").importance.base == 1.0   # 未被篡改
+    assert len(meta.log) == 0
+
+
+def test_apply_op_write_skill_status_clamped():
+    # FIX 1(c):LLM 即便指定 status=active,新建技能也只能 incubating(孵化→晋升闸)
+    r, h, meta = _refiner()
+    ok, res = r._apply_op(RefineOp(tool="write_skill",
+                                   args=_legal_skill("newk", status="active"),
+                                   rationale="新模式"), "K", PASS_K())
+    assert ok and isinstance(res, AppliedEdit)
+    assert h.skills.get("newk").status == "incubating"
+    assert h.skills.get("newk") not in h.skills.by_status("active")
+
+
+def test_apply_op_write_skill_drops_injected_stats():
+    # FIX 1(c):LLM 注入的伪造 stats 必须被丢弃,新技能 stats 归零
+    r, h, meta = _refiner()
+    args = _legal_skill("newk")
+    args["stats"] = {"n": 999, "wins": 999}
+    ok, res = r._apply_op(RefineOp(tool="write_skill", args=args, rationale="新模式"),
+                          "K", PASS_K())
+    assert ok and isinstance(res, AppliedEdit)
+    assert h.skills.get("newk").stats.n == 0
+
+
+def test_apply_op_process_memory_drops_injected_importance():
+    # FIX 1(c):LLM 注入的伪造 importance 必须被丢弃,新教训 importance 归默认
+    r, h, meta = _refiner()
+    ok, res = r._apply_op(RefineOp(tool="process_memory",
+                                   args={"lesson_id": "lnew", "regime": "主升",
+                                         "outcome": "loss", "lesson": "新教训",
+                                         "importance": {"base": 99.0}},
+                                   rationale="记牢"), "M", PASS_M())
+    assert ok and isinstance(res, AppliedEdit)
+    assert h.memory.get("lnew").importance.base == 1.0
+
+
+def test_apply_op_reject_nonstring_regime_process_memory():
+    # FIX 2(a):非字符串 regime 必须被干净拒绝(不抛)
+    r, h, meta = _refiner()
+    ok, res = r._apply_op(RefineOp(tool="process_memory",
+                                   args={"lesson_id": "lnew", "regime": ["主升"],
+                                         "outcome": "loss", "lesson": "新教训"},
+                                   rationale="记牢"), "M", PASS_M())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert len(meta.log) == 0
+
+
+def test_apply_op_reject_nonstring_regime_write_skill():
+    # FIX 2(a):applicable_regime 含非字符串元素必须被干净拒绝(不抛)
+    r, h, meta = _refiner()
+    args = _legal_skill("newk", applicable_regime=["主升", 2024])
+    ok, res = r._apply_op(RefineOp(tool="write_skill", args=args, rationale="新模式"),
+                          "K", PASS_K())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert len(meta.log) == 0
+
+
+def test_refine_malformed_op_does_not_abort_pass():
+    # 一条坏 op 不丢整轮:malformed write_skill 进 rejected,合法 promote 进 applied
+    h = _harness()
+    from youzi.harness.skill import Skill
+    h.skills.write(Skill.from_seed(_legal_skill("inc1")))   # 一个 incubating 技能供 promote
+    k_ops = ('{"ops": ['
+             '{"tool": "write_skill", "args": {"skill_id": "bad1", "name_cn": "坏",'
+             ' "type": "pattern", "applicable_regime": ["主升", 2024], "trigger": "t",'
+             ' "entry": "e", "exit_stop": "x"}, "rationale": "坏regime"},'
+             '{"tool": "promote_skill", "args": {"skill_id": "inc1"}, "rationale": "晋升"}]}')
+    rep, h2, meta, llm = _run_refine(['{"ops": []}', k_ops, '{"ops": []}'], h=h)
+    assert {e.tool for e in rep.applied} == {"promote_skill"}
+    assert h2.skills.get("inc1").status == "active"
+    assert any(rj.tool == "write_skill" for rj in rep.rejected)
+
+
 # 小工具:从 ops 取白名单,避免在测试里硬写 frozenset
 def PASS_K():
     from youzi.refine.ops import PASS_TOOLS
@@ -89,6 +193,11 @@ def PASS_K():
 def PASS_P():
     from youzi.refine.ops import PASS_TOOLS
     return PASS_TOOLS["p"]
+
+
+def PASS_M():
+    from youzi.refine.ops import PASS_TOOLS
+    return PASS_TOOLS["M"]
 
 
 from youzi.refine.refiner_prompt import build_refiner_system_prompt  # noqa

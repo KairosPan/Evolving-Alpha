@@ -86,7 +86,7 @@ class Refiner:
         try:
             rec = self._dispatch(op)
         except (ImmutableDoctrineError, InvalidTransitionError, KeyError,
-                ValueError, ValidationError, TypeError) as e:
+                ValueError, ValidationError, TypeError, AttributeError) as e:
             return False, RejectedEdit(pass_kind=pk, tool=op.tool, target_id=tid,
                                        reason=f"{type(e).__name__}: {e}")
         return True, AppliedEdit(pass_kind=pk, tool=op.tool,
@@ -98,6 +98,9 @@ class Refiner:
         r = op.rationale
         m = self._meta
         if op.tool == "write_skill":
+            # LLM 不可注入伪造 stats(观测,由 apply_credit 维护),也不可直接铸造 active(孵化→晋升闸)
+            a = {k: v for k, v in a.items() if k != "stats"}
+            a["status"] = "incubating"
             return m.write_skill(Skill.from_seed(a), rationale=r)
         if op.tool == "patch_skill":
             sid = a.pop("skill_id")
@@ -111,6 +114,8 @@ class Refiner:
         if op.tool == "promote_skill":
             return m.promote_skill(a["skill_id"], rationale=r)
         if op.tool == "process_memory":
+            # LLM 不可注入伪造 importance(观测,由 demote_memory/时间衰减管理)
+            a = {k: v for k, v in a.items() if k != "importance"}
             return m.process_memory(Lesson.from_seed(a), rationale=r)
         if op.tool == "update_memory":
             lid = a.pop("lesson_id")

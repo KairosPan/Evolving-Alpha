@@ -48,11 +48,17 @@ def test_snapshot_load_corrupt_raises(tmp_path):
 
 
 def test_snapshot_with_nested_model_payload_is_jsonable(tmp_path):
-    # patch_skill 触碰嵌套 pydantic 字段(stats)-> before/after payload 含模型,
-    # 经 _jsonable 转 dict 后 json.dumps 不应崩溃,且能再 load 回来。
+    # EditLog payload 含嵌套 pydantic 模型(经 MetaTools._jsonable 转 dict)-> snapshot
+    # json.dumps 不应崩溃,且能再 load 回来。
+    # (注:stats/importance 现为写保护观测字段,不能经 patch/update 进 payload;
+    #  此处直接经 _jsonable + EditLog.append 复现"嵌套模型进 payload"的序列化路径。)
+    from youzi.harness.metatools import _jsonable
     h = _h()
     mt = MetaTools(h)
-    mt.patch_skill("a", stats=SkillStats())          # 嵌套模型进 payload
+    snap = _jsonable(SkillStats())                   # 嵌套模型 -> dict
+    assert isinstance(snap, dict)
+    mt.log.append("patch_skill", "skill", "a", "update",
+                  payload={"before": {"stats": snap}, "after": {"stats": snap}})
     store = SnapshotStore(tmp_path)
     v0 = store.save(h, mt.log)                        # json.dumps 不崩
     h2, lg = store.load(v0)

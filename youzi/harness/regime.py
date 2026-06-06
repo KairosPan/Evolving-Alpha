@@ -19,7 +19,7 @@ _PHASE_RULES: list[tuple[tuple[str, ...], str]] = [
 
 def classify_regime(raw: str) -> tuple[str, str | None]:
     """归一单个 regime 串。返回 (kind, value),kind ∈ {'phase','ecology','other'}。(入参假定为 playbook 受控词,非通用 NL;子串匹配刻意宽松)"""
-    s = (raw or "").strip()
+    s = raw.strip() if isinstance(raw, str) else ""   # 非字符串(如 LLM 误传 int)视为空,不崩
     if not s:
         return ("other", None)
     for tag in ECOLOGY_TAGS:
@@ -53,7 +53,7 @@ def parse_regime_field(raw: str) -> tuple[list[str], list[str], bool]:
     用于 Lesson/DoctrineEntry 的 regime 字段(单字符串);Skill 的 applicable_regime 已是列表,仍用 split_regimes。
     未被识别为相位/生态/all 的 token 会从 phases/ecologies 丢弃(仅保留在调用方的 regime_raw 里)。
     """
-    s = (raw or "").strip()
+    s = raw.strip() if isinstance(raw, str) else ""   # 非字符串(如 LLM 误传 list)视为空,不崩
     if not s:
         return ([], [], False)
     tokens = [t for t in _REGIME_SPLIT.split(s) if t]

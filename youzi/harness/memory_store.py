@@ -45,6 +45,8 @@ class MemoryStore:
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
+    _UPDATE_FORBIDDEN = {"importance"}
+
     def add(self, lesson: Lesson) -> None:
         if lesson.lesson_id in self._lessons:
             raise ValueError(f"重复 lesson_id: {lesson.lesson_id}")
@@ -54,6 +56,9 @@ class MemoryStore:
         l = self._lessons.get(lesson_id)
         if l is None:
             raise KeyError(f"无此 lesson_id: {lesson_id}")
+        bad = self._UPDATE_FORBIDDEN & fields.keys()
+        if bad:
+            raise ValueError(f"不可直接 update {sorted(bad)}:importance 是观测字段(由 demote_memory/时间衰减管理,Refiner 不可改)")
         snapshot = {k: getattr(l, k) for k in fields if k in type(l).model_fields}
         try:
             for k, v in fields.items():
