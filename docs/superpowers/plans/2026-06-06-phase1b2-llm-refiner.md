@@ -883,8 +883,9 @@ from youzi.harness.skill import Skill
 from youzi.llm.client import LLMClient
 from youzi.refine.credit import CreditReport
 from youzi.refine.ops import PASS_TOOLS, PassKind, RefineOp, parse_ops
-from youzi.refine.refiner_prompt import build_refiner_system_prompt, build_refiner_user_prompt
 from youzi.refine.signatures import FailureSignature
+# 注:refiner_prompt 的 import 在 Task 9 实现 refine() 时再补——彼时该模块(Task 8)才建好,
+#     此处先不引,避免 Bundle B 内 refiner.py 在 refiner_prompt 尚未存在时 import 失败。
 
 _PASS_ORDER: tuple[PassKind, ...] = ("p", "G", "K", "M")
 
@@ -1306,7 +1307,13 @@ Expected: FAIL(`refine` 抛 `NotImplementedError`)
 
 - [ ] **Step 3: 实现 `refine`**
 
-替换 `youzi/refine/refiner.py` 里 `refine` 方法的 `raise NotImplementedError` 为:
+先在 `youzi/refine/refiner.py` 顶部 import 区补一行(Task 7 刻意未引,因彼时 `refiner_prompt` 尚未建):
+
+```python
+from youzi.refine.refiner_prompt import build_refiner_system_prompt, build_refiner_user_prompt
+```
+
+再替换 `refine` 方法的 `raise NotImplementedError` 为:
 
 ```python
     def refine(self, traj: Trajectory, credit: CreditReport,
