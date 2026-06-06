@@ -54,6 +54,8 @@ class DeepSeekClient:
         self._sleep = sleep if sleep is not None else time.sleep
 
     def complete(self, system: str, user: str) -> str:
+        if self._client is None:                 # openai 未安装:立即清晰报错,不浪费重试退避
+            raise RuntimeError("openai 未安装(pip install openai),无法调用 DeepSeek")
         last: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
