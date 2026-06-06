@@ -56,3 +56,15 @@ def test_parse_int_code_matches_universe():
     raw = '{"candidates":[{"code":1,"pattern":"x","confidence":0.5}]}'
     pkg = parse_decision(raw, date(2024, 6, 27), _uni())   # _uni() 含 000001
     assert {c.code for c in pkg.candidates} == {"000001"}   # int 1 -> "000001"
+
+
+def test_parse_tolerates_prose_prefix():
+    from datetime import date
+    from youzi.agent.parse import parse_decision
+    from youzi.universe.universe import CandidateUniverse
+    from youzi.universe.stock import StockSnapshot
+    uni = CandidateUniverse.from_stocks([
+        StockSnapshot(code="000001", name="平安", status="limit_up", boards=2)])
+    raw = '我分析后认为:\n{"candidates": [{"code": "000001", "pattern": "接力", "confidence": 0.7}], "no_trade_reason": ""}'
+    pkg = parse_decision(raw, date(2024, 6, 27), uni)
+    assert [c.code for c in pkg.candidates] == ["000001"]

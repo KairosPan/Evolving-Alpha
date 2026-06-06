@@ -4,21 +4,13 @@ import json
 from datetime import date as Date
 
 from youzi.eval.decision import Candidate, DecisionPackage
+from youzi.llm.extract import extract_json_object
 from youzi.universe.universe import CandidateUniverse
 
 
 def _extract_json(raw: str) -> str:
-    """去 markdown 围栏 / 取第一个 { 到最后一个 } 的子串。"""
-    # TODO Phase-1b: prose 或 thinking blob 在 JSON 前会让 first-{-to-last-} 失败(目前安全兜底为空仓);后续改贪婪 json 扫描
-    s = (raw or "").strip()
-    if "```" in s:
-        # 去掉 ```json ... ``` 围栏
-        s = s.replace("```json", "```").split("```")[1] if s.count("```") >= 2 else s
-        s = s.strip()
-    i, j = s.find("{"), s.rfind("}")
-    if i != -1 and j != -1 and j > i:
-        return s[i:j + 1]
-    return s
+    """委托共享提取器(贪婪配平);找不到对象 → 空串(交给上层 json.loads 兜底为空仓)。"""
+    return extract_json_object(raw) or ""
 
 
 def _clamp01(v: object, default: float = 0.5) -> float:
