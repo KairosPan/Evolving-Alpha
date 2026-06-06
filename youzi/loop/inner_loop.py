@@ -85,4 +85,66 @@ class InnerLoop:
                                 self._mgr.tools, self._refiner_cfg)
 
     def run(self) -> LoopReport:
-        raise NotImplementedError  # Task 3 实现
+        cfg = self._cfg
+        engine = ReplayEngine(self._source, self._start, self._end)
+        record = PoolRecord()
+        days_seen: list[Date] = []
+        drafts: list[dict] = []
+        pending: list[int] = []
+        scored_steps: list[TrajectoryStep] = []
+        per_step_credits: list = []
+        scores: list[float] = []
+        idx = 0
+        while True:
+            cursor = engine.cursor
+            days_seen.append(cursor)
+            state = engine.observe()
+            universe = build_universe(engine.guarded_source, cursor)
+            record.record(cursor, universe)
+            decision = self._agent.decide(state, universe)
+            entries: dict[str, EntrySnap] = {}
+            for c in decision.candidates:
+                if c.code in entries:
+                    continue
+                snap = universe.get(c.code)
+                if snap is not None:
+                    entries[c.code] = EntrySnap(code=c.code, status=snap.status, boards=snap.boards)
+            drafts.append({"date": cursor, "market": state, "decision": decision,
+                           "entries": entries, "scored": False, "outcomes": {}})
+            pending.append(idx)
+            # 延迟打分(复刻 WalkForwardEval 机制)
+            newly: list[TrajectoryStep] = []
+            remaining: list[int] = []
+            for j in pending:
+                if idx >= j + cfg.horizon:
+                    mem = record.get(days_seen[j + cfg.horizon])
+                    assert mem is not None, f"BUG: {days_seen[j + cfg.horizon]} 未录成员"
+                    dp = drafts[j]["decision"]
+                    seen: set[str] = set()
+                    outcomes: dict[str, ScoredCandidate] = {}
+                    for c in dp.candidates:
+                        if c.code in seen:
+                            continue
+                        seen.add(c.code)
+                        oc = outcome(c.code, mem)
+                        outcomes[c.code] = ScoredCandidate(decision_date=dp.date, code=c.code,
+                                                           pattern=c.pattern, outcome=oc, score=SCORE[oc])
+                    drafts[j]["outcomes"] = outcomes
+                    drafts[j]["scored"] = True
+                    step_j = TrajectoryStep(**drafts[j])
+                    scored_steps.append(step_j)
+                    newly.append(step_j)
+                else:
+                    remaining.append(j)
+            pending = remaining
+            # 在线信用(每个刚评分步调一次 apply_credit,就地改 stats、不重复)+ 熔断分数序列
+            for step in newly:
+                cr = apply_credit(Trajectory(steps=[step], horizon=cfg.horizon), self._mgr.harness)
+                per_step_credits.append(cr)
+                for sc in step.outcomes.values():
+                    scores.append(sc.score)
+            idx += 1
+            if not engine.step():
+                break
+        traj = Trajectory(steps=[TrajectoryStep(**d) for d in drafts], horizon=cfg.horizon)
+        return LoopReport(trajectory=traj, n_edits=len(self._mgr.log))

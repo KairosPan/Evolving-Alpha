@@ -67,3 +67,27 @@ def test_loop_constructs_and_rebinds(tmp_path):
     assert loop._agent._harness is mgr.harness
     assert loop._refiner._h is mgr.harness
     assert mgr.harness.skills.get("longtou").status == "active"   # 还原
+
+
+def _continued_src():
+    """A 每日涨停(continued);3 日。"""
+    days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
+    frames = {}
+    for d in days:
+        frames[("zt", d)] = pd.DataFrame({"code": ["A"], "name": ["甲"], "boards": [2]})
+    return FakeSource(frames, days)
+
+
+def test_run_interleaves_scoring_and_online_credit(tmp_path):
+    src = _continued_src()
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000))  # 不熔断
+    rep = loop.run()
+    # 轨迹:3 步,前 2 步已打分(horizon=1),尾步未打分
+    assert rep.trajectory.n_decisions() == 3
+    assert [s.date for s in rep.trajectory.scored_steps()] == [date(2024, 6, 26), date(2024, 6, 27)]
+    assert rep.trajectory.steps[2].scored is False
+    assert rep.trajectory.steps[0].outcomes["A"].outcome == "continued"
+    # 在线信用:技能 longtou(pattern "龙头接力")被引用且 continued → stats 在 H 内已更新
+    st = mgr.harness.skills.get("longtou").stats
+    assert st.n == 2 and st.wins == 2          # 2 个已打分决策都归因到 longtou 且 continued
