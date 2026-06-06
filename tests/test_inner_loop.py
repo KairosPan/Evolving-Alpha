@@ -1,0 +1,69 @@
+# tests/test_inner_loop.py
+from datetime import date, timedelta
+
+import pandas as pd
+import pytest
+
+from youzi.eval.trajectory import Trajectory
+from youzi.loop.inner_loop import InnerLoop, LoopConfig, LoopReport, RefineEvent, BreakerEvent
+from youzi.harness.skill import Skill
+from youzi.harness.registry import SkillRegistry
+from youzi.harness.memory_store import MemoryStore
+from youzi.harness.doctrine import Doctrine, DoctrineEntry
+from youzi.harness.cycle import StateMachine
+from youzi.harness.harness import HarnessState
+from youzi.harness.snapshot import SnapshotStore
+from youzi.harness.manager import HarnessManager
+from youzi.llm.client import MockLLMClient
+from tests.conftest import FakeSource
+
+
+def _seed_h():
+    skills = SkillRegistry.from_skills([
+        Skill.from_seed({"skill_id": "longtou", "name_cn": "龙头接力", "type": "pattern",
+                         "applicable_regime": ["主升"], "trigger": "t", "entry": "e",
+                         "exit_stop": "x", "status": "active"})])
+    doc = Doctrine(entries=[DoctrineEntry.from_seed(
+        {"section": "主升作战", "regime": "主升", "immutable": False, "guidance": "持有龙头"})])
+    return HarnessState(doctrine=doc, skills=skills,
+                        memory=MemoryStore.from_lessons([]), cycle=StateMachine())
+
+
+def _mgr(tmp_path):
+    return HarnessManager(_seed_h(), SnapshotStore(tmp_path))
+
+
+def _decision(code):
+    return ('{"candidates": [{"code": "%s", "pattern": "龙头接力", "confidence": 0.7}],'
+            ' "no_trade_reason": ""}') % code
+
+
+def _loop(tmp_path, src, agent_scripts, refiner_scripts, config=None):
+    mgr = _mgr(tmp_path)
+    return InnerLoop(mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
+                     MockLLMClient(agent_scripts), MockLLMClient(refiner_scripts),
+                     config=config), mgr
+
+
+def test_models_frozen_and_truthy():
+    rep = LoopReport(trajectory=Trajectory())
+    assert bool(rep) is True
+    with pytest.raises(Exception):
+        rep.frozen_from = date(2024, 1, 1)        # frozen
+
+
+def test_loop_constructs_and_rebinds(tmp_path):
+    src = FakeSource({("zt", date(2024, 6, 26)): pd.DataFrame({"code": ["A"], "name": ["A"], "boards": [1]})},
+                     [date(2024, 6, 26)])
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'])
+    # 构造后 agent/refiner 已绑定到 mgr.harness
+    assert loop._agent._harness is mgr.harness
+    assert loop._refiner._h is mgr.harness
+    # rollback 后 _rebind 指向还原态新对象
+    v = mgr.checkpoint("c0")
+    mgr.tools.retire_skill("longtou")
+    mgr.rollback_to(v)
+    loop._rebind()
+    assert loop._agent._harness is mgr.harness
+    assert loop._refiner._h is mgr.harness
+    assert mgr.harness.skills.get("longtou").status == "active"   # 还原

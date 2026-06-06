@@ -1,0 +1,88 @@
+# youzi/loop/inner_loop.py
+from __future__ import annotations
+
+from datetime import date as Date
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from youzi.agent.agent import LLMAgentPolicy
+from youzi.eval.metrics import ScoredCandidate
+from youzi.eval.oracle import SCORE, PoolRecord, outcome
+from youzi.eval.trajectory import EntrySnap, Trajectory, TrajectoryStep
+from youzi.harness.manager import HarnessManager
+from youzi.llm.client import LLMClient
+from youzi.refine.credit import apply_credit, merge_credit_reports
+from youzi.refine.refiner import RefineReport, Refiner, RefinerConfig
+from youzi.refine.signatures import extract_signatures
+from youzi.replay.engine import ReplayEngine
+from youzi.universe.universe import build_universe
+
+
+class LoopConfig(BaseModel):
+    horizon: int = 1                  # 延迟打分窗口(同 WalkForwardEval)
+    refine_every: int = 1             # 每 N 交易日 refine 一次(默认每日)
+    credit_window: int = 10           # 给 refiner 的证据窗口(最近 N 个已评分步)
+    breaker_window: int = 20          # 滚动 expectancy 窗口(最近 N 个已评分候选)
+    baseline_window: int = 20         # 基线 = 前 N 个已评分候选均值
+    floor_abs: float = -0.2           # 绝对地板:rolling < floor_abs → 熔断
+    floor_rel_margin: float = 0.15    # 相对地板:rolling < baseline - margin → 熔断
+    breaker_min_samples: int = 40     # 已评分候选数 >= 此值才可能熔断
+
+
+class RefineEvent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    date: Date
+    checkpoint_version: int | None
+    report: RefineReport
+
+
+class BreakerEvent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    date: Date
+    rolling: float
+    baseline: float | None
+    reason: str
+    rolled_back_to: int | None
+
+
+class LoopReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    trajectory: Trajectory
+    refine_events: list[RefineEvent] = Field(default_factory=list)
+    breaker_events: list[BreakerEvent] = Field(default_factory=list)
+    frozen_from: Date | None = None
+    n_edits: int = 0
+
+    def __bool__(self) -> bool:
+        return True
+
+
+class InnerLoop:
+    """内环编排:交错 act→延迟打分→在线信用→(每日)refine,reset-free + 能力地板熔断。
+
+    持有 HarnessManager(live H + EditLog + MetaTools + SnapshotStore);
+    agent/refiner 由 manager.harness/manager.tools 构造,rollback 后 _rebind 重建。
+    """
+
+    def __init__(self, manager: HarnessManager, source, start: Date, end: Date,
+                 agent_llm: LLMClient, refiner_llm: LLMClient,
+                 config: LoopConfig | None = None,
+                 refiner_config: RefinerConfig | None = None) -> None:
+        self._mgr = manager
+        self._source = source
+        self._start = start
+        self._end = end
+        self._agent_llm = agent_llm
+        self._refiner_llm = refiner_llm
+        self._cfg = config or LoopConfig()
+        self._refiner_cfg = refiner_config or RefinerConfig()
+        self._rebind()
+
+    def _rebind(self) -> None:
+        """(重)绑定 agent/refiner 到 manager 当前的 harness/tools——启动与 rollback 后调用。"""
+        self._agent = LLMAgentPolicy(self._mgr.harness, self._agent_llm)
+        self._refiner = Refiner(self._mgr.harness, self._refiner_llm,
+                                self._mgr.tools, self._refiner_cfg)
+
+    def run(self) -> LoopReport:
+        raise NotImplementedError  # Task 3 实现
