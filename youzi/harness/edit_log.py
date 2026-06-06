@@ -13,6 +13,7 @@ class EditRecord(BaseModel):
     op: str                  # create | update | retire | revive | promote | demote | rewrite
     summary: str = ""
     payload: dict | None = None   # old→new 等结构化负载,为 0b-3 回滚预留
+    rationale: str = ""           # Refiner 给出的编辑理由(默认空,向后兼容)
 
 
 class EditLog:
@@ -22,9 +23,11 @@ class EditLog:
         self._records: list[EditRecord] = []
 
     def append(self, tool: str, target_kind: str, target_id: str,
-               op: str, summary: str = "", payload: dict | None = None) -> EditRecord:
+               op: str, summary: str = "", payload: dict | None = None,
+               rationale: str = "") -> EditRecord:
         rec = EditRecord(seq=len(self._records), tool=tool, target_kind=target_kind,
-                         target_id=target_id, op=op, summary=summary, payload=payload)
+                         target_id=target_id, op=op, summary=summary, payload=payload,
+                         rationale=rationale)
         self._records.append(rec)
         return rec
 
