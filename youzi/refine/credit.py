@@ -107,3 +107,34 @@ def apply_credit(traj: Trajectory, harness: HarnessState, decay: float = 0.1) ->
         unattributed=unattr.to_credit(UNATTRIBUTED) if unattr.n else None,
         n_scored=n_scored,
     )
+
+
+def merge_credit_reports(reports: list[CreditReport]) -> CreditReport:
+    """把多份增量 CreditReport 合并为一份(纯只读,不触 SkillStats)。
+
+    per_skill 按 skill_id 累加 n/wins/losses/nukes 与 score_sum(=expectancy*n),
+    经 _Acc.to_credit 重算 hit_rate/nuke_rate/expectancy;unattributed 同法;n_scored 累加。
+    给内环 refiner 当"本窗口谁在亏"的只读证据,区别于 H 内由 apply_credit 直写的累计 stats。
+    """
+    per: dict[str, _Acc] = {}
+    unattr = _Acc()
+    n_scored = 0
+
+    def _absorb(acc: _Acc, sc: SkillCredit) -> None:
+        acc.n += sc.n
+        acc.wins += sc.wins
+        acc.losses += sc.losses
+        acc.nukes += sc.nukes
+        acc.score_sum += sc.expectancy * sc.n
+
+    for rep in reports:
+        n_scored += rep.n_scored
+        for sid, sc in rep.per_skill.items():
+            _absorb(per.setdefault(sid, _Acc()), sc)
+        if rep.unattributed is not None:
+            _absorb(unattr, rep.unattributed)
+    return CreditReport(
+        per_skill={sid: acc.to_credit(sid) for sid, acc in per.items()},
+        unattributed=unattr.to_credit(UNATTRIBUTED) if unattr.n else None,
+        n_scored=n_scored,
+    )
