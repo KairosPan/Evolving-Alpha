@@ -12,9 +12,8 @@ from youzi.harness.skill import Skill
 from youzi.llm.client import LLMClient
 from youzi.refine.credit import CreditReport
 from youzi.refine.ops import PASS_TOOLS, PassKind, RefineOp, parse_ops
+from youzi.refine.refiner_prompt import build_refiner_system_prompt, build_refiner_user_prompt
 from youzi.refine.signatures import FailureSignature
-# 注:refiner_prompt 的 import 在 Task 9 实现 refine() 时再补——彼时该模块(Task 8)才建好,
-#     此处先不引,避免 Bundle B 内 refiner.py 在 refiner_prompt 尚未存在时 import 失败。
 
 _PASS_ORDER: tuple[PassKind, ...] = ("p", "G", "K", "M")
 
@@ -124,4 +123,31 @@ class Refiner:
 
     def refine(self, traj: Trajectory, credit: CreditReport,
                signatures: list[FailureSignature]) -> RefineReport:
-        raise NotImplementedError  # Task 9 实现 4-pass 编排
+        applied: list[AppliedEdit] = []
+        rejected: list[RejectedEdit] = []
+        notes: list[str] = []
+        for pk in _PASS_ORDER:
+            allowed = PASS_TOOLS[pk]
+            if not allowed:                                   # ΔG 占位 no-op(不发 LLM 调用)
+                notes.append(f"{pk}-pass reserved(G 子 Agent 未建,跳过)")
+                continue
+            system = build_refiner_system_prompt(self._h, pk)
+            user = build_refiner_user_prompt(traj, credit, signatures, self._cfg.window)
+            ops = parse_ops(self._llm.complete(system, user))
+            pass_count = 0
+            for op in ops:
+                if len(applied) >= self._cfg.max_edits_per_refine:
+                    rejected.append(RejectedEdit(pass_kind=pk, tool=op.tool,
+                        target_id=_target_id(op.tool, op.args), reason="超出 per-refine 编辑上限"))
+                    continue
+                if pass_count >= self._cfg.max_edits_per_pass:
+                    rejected.append(RejectedEdit(pass_kind=pk, tool=op.tool,
+                        target_id=_target_id(op.tool, op.args), reason="超出 per-pass 编辑上限"))
+                    continue
+                ok, res = self._apply_op(op, pk, allowed)
+                if ok:
+                    applied.append(res)
+                    pass_count += 1
+                else:
+                    rejected.append(res)
+        return RefineReport(applied=applied, rejected=rejected, notes=notes)
