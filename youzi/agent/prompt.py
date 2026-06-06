@@ -32,9 +32,19 @@ def build_system_prompt(h: HarnessState) -> str:
     out.append("\n## 模式库(可用技能,只在适用相位用):")
     for s in h.skills.by_status("active"):
         tags = "/".join(s.phases) + (("|" + "/".join(s.ecologies)) if s.ecologies else "")
-        out.append(f"- {s.name_cn}({s.skill_id})[{s.type}] 适用[{tags}] "
-                   f"触发:{s.trigger} 买点:{s.entry} 卖/止:{s.exit_stop} "
-                   f"禁忌:{';'.join(s.taboo)}")
+        line = (f"- {s.name_cn}({s.skill_id})[{s.type}] 适用[{tags}] "
+                f"触发:{s.trigger} 买点:{s.entry} 卖/止:{s.exit_stop} "
+                f"禁忌:{';'.join(s.taboo)}")
+        st = s.stats
+        if st.n > 0:                                   # 有战绩才渲染,让 agent 看到亏/被砸
+            bits = f"n={st.n}"
+            if st.ewma_winrate is not None:
+                bits += f" 胜率={st.ewma_winrate:.2f}"
+            bits += f" nukes={st.nukes}"
+            if st.expectancy is not None:
+                bits += f" exp={st.expectancy:+.2f}"
+            line += f" [战绩 {bits}]"
+        out.append(line)
     out.append("\n## 复盘教训(口诀与失败签名):")
     for l in h.memory.all():
         if l.outcome == "principle":
@@ -43,6 +53,10 @@ def build_system_prompt(h: HarnessState) -> str:
         if l.outcome == "loss":
             tag = f"{l.named_analog}:" if l.named_analog else ""
             out.append(f"- [失败] {tag}{l.lesson}")
+    for l in h.memory.all():
+        if l.outcome == "win":
+            tag = f"{l.named_analog}:" if l.named_analog else ""
+            out.append(f"- [成功] {tag}{l.lesson}")
     out.append("\n## " + _OUTPUT_CONTRACT)
     return "\n".join(out)
 
