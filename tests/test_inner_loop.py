@@ -137,7 +137,7 @@ def test_breaker_trips_rolls_back_and_freezes(tmp_path):
     # 每个被选 code 次日跌停 → 全 nuked(-1)→ rolling 跌破 floor_abs(-0.5)→ 熔断
     assert len(rep.breaker_events) == 1
     be = rep.breaker_events[0]
-    assert be.reason in ("rolling<floor_abs", "rolling<baseline-margin")
+    assert be.reason == "rolling<floor_abs"          # floor_abs=-0.5, rolling=-1.0 → 确定走绝对地板分支
     assert be.rolled_back_to is not None          # 熔断前已有 refine → 有 checkpoint
     assert rep.frozen_from == be.date
     # 冻结后不再有 refine

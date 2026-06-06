@@ -148,7 +148,8 @@ class InnerLoop:
                     scores.append(sc.score)
             # 能力地板熔断(自相对 + 绝对;只触发一次)
             if not frozen and len(scores) >= cfg.breaker_min_samples:
-                baseline = sum(scores[:cfg.baseline_window]) / cfg.baseline_window
+                n_base = min(len(scores), cfg.baseline_window)   # 与 rolling 对称:按实有样本数算,防误配 min_samples<baseline_window 时 baseline 被低估
+                baseline = sum(scores[:n_base]) / n_base
                 window = scores[-cfg.breaker_window:]
                 rolling = sum(window) / len(window)
                 reason: str | None = None
