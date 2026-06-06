@@ -107,6 +107,25 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1) -> None:
           f"Δ被砸率={rep.hch_minus_hexpert_nuke_rate:+.4f}")
     verdict = "✅ HCH 胜 frozen" if rep.hch_beats_hexpert else "❌ HCH 未胜 frozen(持平或退化)"
     print(f"  verdict: {verdict}")
+
+    # HCH 自进化到底改了啥(诊断:看 refine 每次的 applied/rejected 编辑)
+    lr = rep.hch_loop_report
+    if lr is not None:
+        print("\n=== HCH 自进化轨迹(每次 refine 改了什么)===")
+        if not lr.refine_events:
+            print("  (无 refine)")
+        for ev in lr.refine_events:
+            r = ev.report
+            print(f"  [{ev.date} ckpt={ev.checkpoint_version}] applied={len(r.applied)} rejected={len(r.rejected)}")
+            for e in r.applied:
+                print(f"      ✓ {e.pass_kind}:{e.tool} → {e.target_id}  «{e.rationale}»")
+            for e in r.rejected:
+                print(f"      ✗ {e.pass_kind}:{e.tool} → {e.target_id}  拒因:{e.reason}")
+            for n in r.notes:
+                print(f"      · {n}")
+        for be in lr.breaker_events:
+            print(f"  [熔断 {be.date}] {be.reason} rolling={be.rolling:+.3f} baseline={be.baseline} "
+                  f"→ rollback={be.rolled_back_to}")
     print("\n⚠ 单窗口单次采样=信号非定论;多窗口/多 episode 聚合见 1b-3b 债务。")
 
 

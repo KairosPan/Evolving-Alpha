@@ -122,3 +122,11 @@ def test_factory_call_counts_and_isolation(tmp_path):
     assert agent_f.calls == 2        # HCH agent + Hexpert agent
     assert refiner_f.calls == 1      # 仅 HCH refiner
     assert store_f.calls == 1        # 仅 HCH 用 store
+
+
+def test_hch_loop_report_exposed_for_introspection(tmp_path):
+    # ComparisonReport 暴露 HCH 完整 LoopReport,供诊断"自进化改了啥"
+    rep, *_ = _compare(tmp_path, [_PICK_W])
+    assert rep.hch_loop_report is not None
+    assert len(rep.hch_loop_report.refine_events) == rep.arms["HCH"].n_refines
+    assert len(rep.hch_loop_report.breaker_events) == rep.arms["HCH"].n_breaker_trips

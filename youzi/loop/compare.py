@@ -14,7 +14,7 @@ from youzi.harness.harness import HarnessState
 from youzi.harness.manager import HarnessManager
 from youzi.harness.snapshot import SnapshotStore
 from youzi.llm.client import LLMClient
-from youzi.loop.inner_loop import InnerLoop, LoopConfig
+from youzi.loop.inner_loop import InnerLoop, LoopConfig, LoopReport
 from youzi.refine.refiner import RefinerConfig
 
 
@@ -35,6 +35,7 @@ class ComparisonReport(BaseModel):
     hch_minus_hexpert_hit_rate: float
     hch_minus_hexpert_nuke_rate: float
     hch_beats_hexpert: bool
+    hch_loop_report: LoopReport | None = None   # HCH 完整环报告(refine_events/breaker_events 明细;诊断"自进化改了啥")
 
     def __bool__(self) -> bool:
         return True
@@ -83,4 +84,5 @@ def compare_harnesses(
         hch_minus_hexpert_hit_rate=d_hit,
         hch_minus_hexpert_nuke_rate=d_nuke,
         hch_beats_hexpert=d_mean > 0,
+        hch_loop_report=lr,
     )
