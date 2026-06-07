@@ -69,3 +69,29 @@
 DEEPSEEK_API_KEY=... python scripts/smoke_compare.py 20260529 20260605 1
 ```
 输出含四路对比表 + `HCH−Hexpert` delta + verdict + **HCH 每次 refine 改了什么**(applied/rejected 明细)。
+
+---
+
+## 8. 复测(2026-06-07,post-1b-3d Refiner 纪律化)
+
+1b-3d 落地后(退役证据门 n≥5 + faded≠nuked 提示纪律),**同三窗复跑**:
+
+| 窗口 | 改前 Δexp / verdict | 改后 Δexp / verdict |
+|---|---|---|
+| 05-29~06-05 | −0.217 ❌ | **+0.333 ✅**(HCH +0.333,被砸率 0%) |
+| 05-20~05-28 | −0.023 ❌ | −0.033 ❌ |
+| 05-12~05-19 | −0.167 ❌ | −0.167 ❌ |
+
+**0/3 胜 → 1/3 胜。** 但 **verdict 被 LLM 重采样污染**:Hexpert(冻结、无代码改动)窗口 1 期望分 +0.267→+0.000 纯属随机,故 verdict 翻转**不能干净归因于 1b-3d**。
+
+**真正的硬证据(噪声小)= 退役门改变了行为**:
+- **改前**:HCH 大量小样本退役(`retire relay_2to3_w2s` n=2、`w2s_weak_to_strong` n=2、`w2s_strong_stronger` n=4、`relay_1to2` n=2 …),技能被逐个砍掉 → 后段胆小、漏赢家。
+- **改后(三窗)**:applied 里**几乎无 `retire_skill`**——Refiner 改用 `patch_skill`(加禁忌)+ `rewrite_doctrine` + `process/demote_memory`,**技能库不再流失**。(唯一一条 retire 因幻觉技能名被 KeyError 拒,非样本门。)说明**提示纪律把行为上移到了"少而精地 patch",硬门作 backstop。**
+
+**结论(诚实分级)**:
+- **机制层(高置信)**:1b-3d **确实治住了退化根因**——HCH 不再小样本退役,改温和 patch/doctrine 调整,保住技能库。设计意图直接兑现,噪声小。
+- **结果层(噪声大)**:verdict 0/3→1/3、窗口 1 强翻正,**方向乐观但非定论**(3 窗小样本 + LLM 重采样混淆)。定量证明"HCH ≥ Hexpert"需**多窗口/多 episode 聚合**(+ 控温/多次重采样去噪)。
+
+**残留 friction(债务,复测中仍见)**:`update_memory` 漏 `lesson_id`→KeyError、`process_memory` 重复 `lesson_id`→拒(LLM 跨 refine 重提同一新教训)。不影响正确性(干净拒绝),浪费编辑额度。
+
+**下一步**:① 多窗口聚合 + 控噪(定量证明);② friction 修复;③ 1b-3c 影子 Hexpert 严格地板(安全网);④ 1c 协同学习外环。
