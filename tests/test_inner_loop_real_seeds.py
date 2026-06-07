@@ -70,6 +70,9 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     assert mgr.harness.skills.get(SEED_SKILL_ID).name_cn == SEED_SKILL_NAME
     assert mgr.harness.skills.get(SEED_SKILL_ID).stats.n == 0
     assert mgr.harness.skills.get(RETIRE_SKILL_ID).status == "active"
+    # 退役证据门(Phase-1b-3d):该技能 agent 不引用、stats.n 永为 0,会被门拦下;
+    # 本端到端测试意在验证 retire 流(refine→H→EditLog→reset-free),故预置足够样本让其过门。
+    mgr.harness.skills.get(RETIRE_SKILL_ID).stats.n = 5
     assert mgr.harness.doctrine.get(MUTABLE_SECTION).immutable is False
     doc_before = mgr.harness.doctrine.get(MUTABLE_SECTION).guidance
 

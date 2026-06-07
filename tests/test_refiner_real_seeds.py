@@ -92,6 +92,9 @@ def test_refiner_real_seeds_end_to_end_applies_and_logs():
     assert h.doctrine.get(DOCTRINE_MUTABLE).immutable is False
     old_guidance = h.doctrine.get(DOCTRINE_MUTABLE).guidance
     assert h.skills.get(SKILL_INCUBATING).status == "incubating"
+    # 退役证据门(Phase-1b-3d):该技能本轨迹未被引用、stats.n=0 会被门拦下;
+    # 本端到端测试意在验证 retire 流(refine→H→EditLog),故预置足够样本让其过门。
+    h.skills.get(SKILL_INCUBATING).stats.n = 5
     assert h.memory.get(NEW_LESSON_ID) is None
 
     # credit + signatures(观测填 SkillStats;H 因 apply_credit 已变)

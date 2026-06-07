@@ -102,6 +102,9 @@ def test_refine_edits_visible_next_day_resetfree(tmp_path):
                        '{"ops": []}']
     loop, mgr = _loop(tmp_path, src, [_decision("A")], refiner_scripts,
                       config=LoopConfig(breaker_min_samples=10_000))  # 不熔断
+    # 退役证据门(Phase-1b-3d):day1 refine 时 longtou 仅累计 n=1<默认门槛,会被拦下;
+    # 本测试意在验证退役的 reset-free 可见性,故预置足够样本让其过门。
+    mgr.harness.skills.get("longtou").stats.n = 5
     rep = loop.run()
     # refine 每日触发(有新证据起):day1、day2 各一次
     assert [e.date for e in rep.refine_events] == [date(2024, 6, 27), date(2024, 6, 28)]

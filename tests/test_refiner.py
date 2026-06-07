@@ -287,3 +287,65 @@ def test_refine_per_refine_cap_enforced():
     rep, h2, meta, llm = _run_refine(['{"ops": []}', k_ops, '{"ops": []}'], h=h, cfg=cfg)
     assert len(rep.applied) == 1
     assert len(rep.rejected) == 1 and "per-refine" in rep.rejected[0].reason
+
+
+# ── Phase-1b-3d:退役证据门(治小样本过度退役)──
+
+def test_retire_gate_rejects_thin_samples():
+    # _harness 技能 "a" stats.n=0(默认)< K=5 → 退役被拒、技能未退役、未记日志
+    h = _harness()
+    meta = MetaTools(h)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), meta, RefinerConfig(min_retire_samples=5))
+    ok, res = r._apply_op(RefineOp(tool="retire_skill", args={"skill_id": "a"}, rationale="想退役"),
+                          "K", PASS_K())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert "证据不足" in res.reason and "min_retire_samples" in res.reason
+    assert h.skills.get("a").status == "active"     # 未退役
+    assert len(meta.log) == 0
+
+
+def test_retire_gate_allows_when_enough_samples():
+    h = _harness()
+    h.skills.get("a").stats.n = 5                   # 样本足够
+    meta = MetaTools(h)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), meta, RefinerConfig(min_retire_samples=5))
+    ok, res = r._apply_op(RefineOp(tool="retire_skill", args={"skill_id": "a"}, rationale="n=5真亏"),
+                          "K", PASS_K())
+    assert ok and isinstance(res, AppliedEdit)
+    assert h.skills.get("a").status == "dormant"
+
+
+def test_retire_gate_applies_to_permanent_too():
+    h = _harness()                                  # a.stats.n=0 < 5
+    meta = MetaTools(h)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), meta, RefinerConfig(min_retire_samples=5))
+    ok, res = r._apply_op(RefineOp(tool="retire_skill",
+                                   args={"skill_id": "a", "permanent": True}, rationale="永久"),
+                          "K", PASS_K())
+    assert not ok and "证据不足" in res.reason
+    assert h.skills.get("a").status == "active"
+
+
+def test_retire_gate_does_not_swallow_hallucinated_target():
+    # 不存在的技能仍走 dispatch 的 KeyError(门只挡"存在但样本不足"),不误吞
+    h = _harness()
+    r = Refiner(h, MockLLMClient('{"ops": []}'), MetaTools(h), RefinerConfig(min_retire_samples=5))
+    ok, res = r._apply_op(RefineOp(tool="retire_skill", args={"skill_id": "不存在"}, rationale="r"),
+                          "K", PASS_K())
+    assert not ok and "KeyError" in res.reason
+
+
+def test_refine_level_rejects_thin_retire():
+    # refine() 整轮:K-pass 脚本退役 n<K 技能 → 进 rejected、H 未变
+    k_ops = '{"ops": [{"tool": "retire_skill", "args": {"skill_id": "a"}, "rationale": "想退"}]}'
+    rep, h, meta, llm = _run_refine(['{"ops": []}', k_ops, '{"ops": []}'],
+                                    cfg=RefinerConfig(min_retire_samples=5))
+    assert rep.applied == []
+    assert len(rep.rejected) == 1 and "证据不足" in rep.rejected[0].reason
+    assert h.skills.get("a").status == "active"
+
+
+def test_refiner_config_rejects_degenerate_min_retire():
+    import pytest
+    with pytest.raises(Exception):
+        RefinerConfig(min_retire_samples=0)

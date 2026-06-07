@@ -22,6 +22,7 @@ class RefinerConfig(BaseModel):
     max_edits_per_pass: int = 5
     max_edits_per_refine: int = 12
     window: int = 10
+    min_retire_samples: int = Field(default=5, ge=1)   # retire_skill 需 skill.stats.n>=此值,防小样本过度退役
 
 
 class AppliedEdit(BaseModel):
@@ -83,6 +84,14 @@ class Refiner:
         if not op.rationale.strip():
             return False, RejectedEdit(pass_kind=pk, tool=op.tool, target_id=tid,
                                        reason="缺 rationale")
+        # 退役证据门(治真实数据退化根因:小样本过度退役)。只读 stats.n,不改 stats。
+        if op.tool == "retire_skill":
+            sk = self._h.skills.get(str(tid)) if tid else None
+            if sk is not None and sk.stats.n < self._cfg.min_retire_samples:
+                return False, RejectedEdit(
+                    pass_kind=pk, tool=op.tool, target_id=tid,
+                    reason=(f"证据不足:n={sk.stats.n}<min_retire_samples="
+                            f"{self._cfg.min_retire_samples},不退役(faded 是空耗非亏损,样本不足别退役)"))
         try:
             rec = self._dispatch(op)
         except (ImmutableDoctrineError, InvalidTransitionError, KeyError,
@@ -136,7 +145,7 @@ class Refiner:
             if not allowed:                                   # ΔG 占位 no-op(不发 LLM 调用)
                 notes.append(f"{pk}-pass reserved(G 子 Agent 未建,跳过)")
                 continue
-            system = build_refiner_system_prompt(self._h, pk)
+            system = build_refiner_system_prompt(self._h, pk, self._cfg.min_retire_samples)
             user = build_refiner_user_prompt(traj, credit, signatures, self._cfg.window)
             ops = parse_ops(self._llm.complete(system, user))
             pass_count = 0
