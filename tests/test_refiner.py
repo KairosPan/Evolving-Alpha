@@ -349,3 +349,14 @@ def test_refiner_config_rejects_degenerate_min_retire():
     import pytest
     with pytest.raises(Exception):
         RefinerConfig(min_retire_samples=0)
+
+
+def test_target_id_normalizes_numeric_id_no_crash():
+    # LLM 把 id 发成数字({"skill_id": 7})时,拒绝路径不得崩——target_id 归一为 str
+    h = _harness()
+    r = Refiner(h, MockLLMClient('{"ops": []}'), MetaTools(h), RefinerConfig(min_retire_samples=5))
+    ok, res = r._apply_op(RefineOp(tool="retire_skill", args={"skill_id": 7}, rationale="r"),
+                          "K", PASS_K())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert res.target_id == "7"          # 归一为字符串,不崩
+    assert "KeyError" in res.reason      # 无技能 "7" → dispatch KeyError → 干净拒绝

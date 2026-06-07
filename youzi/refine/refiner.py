@@ -53,13 +53,17 @@ class RefineReport(BaseModel):
 
 
 def _target_id(tool: str, args: dict) -> str | None:
+    # 归一为 str|None:LLM 可能把 id 发成数字(如 {"skill_id": 7}),若不归一,
+    # 拒绝路径构造 RejectedEdit(target_id=非str) 会 pydantic ValidationError 崩掉 refine()。
     if tool in ("write_skill", "patch_skill", "retire_skill", "revive_skill", "promote_skill"):
-        return args.get("skill_id")
-    if tool in ("process_memory", "update_memory", "demote_memory"):
-        return args.get("lesson_id")
-    if tool == "rewrite_doctrine":
-        return args.get("section")
-    return None
+        v = args.get("skill_id")
+    elif tool in ("process_memory", "update_memory", "demote_memory"):
+        v = args.get("lesson_id")
+    elif tool == "rewrite_doctrine":
+        v = args.get("section")
+    else:
+        v = None
+    return None if v is None else str(v)
 
 
 class Refiner:
