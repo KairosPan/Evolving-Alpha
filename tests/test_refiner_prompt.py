@@ -54,3 +54,22 @@ def test_user_prompt_renders_evidence():
     assert "000001" in u and "nuked" in u
     assert "a" in u and "nuke" in u.lower()
     assert "chased_into_nuke" in u and "追最高板被闷" in u
+
+
+def test_k_pass_prompt_has_retire_discipline():
+    from youzi.refine.refiner_prompt import build_refiner_system_prompt
+    from tests.test_metatools import _harness
+    p = build_refiner_system_prompt(_harness(), "K", min_retire_samples=7)
+    assert "n≥7" in p                      # 注入的真实门槛值
+    assert "收缩纪律" in p
+    assert "faded" in p and "nuked" in p and "空耗" in p
+    # p-pass 不含收缩纪律段(纪律是 K 专属)
+    assert "收缩纪律" not in build_refiner_system_prompt(_harness(), "p", min_retire_samples=7)
+
+
+def test_build_prompt_backward_compatible_two_args():
+    from youzi.refine.refiner_prompt import build_refiner_system_prompt
+    from tests.test_metatools import _harness
+    # 2-参调用仍可用(默认 K=5)
+    p = build_refiner_system_prompt(_harness(), "K")
+    assert "n≥5" in p

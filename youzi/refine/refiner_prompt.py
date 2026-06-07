@@ -28,7 +28,8 @@ _PASS_TOOLS_DOC: dict[str, str] = {
 }
 
 
-def build_refiner_system_prompt(h: HarnessState, pass_kind: PassKind) -> str:
+def build_refiner_system_prompt(h: HarnessState, pass_kind: PassKind,
+                                min_retire_samples: int = 5) -> str:
     """某 pass 的复盘官系统提示:本 pass 改哪个容器 + 可用 meta-tool schema + 规则 + 当前 H 切片。"""
     out = [
         "你是 A股游资/超短交易系统的**复盘官(Refiner)**。读最近复盘窗口的决策与已实现结果、"
@@ -54,6 +55,11 @@ def build_refiner_system_prompt(h: HarnessState, pass_kind: PassKind) -> str:
             st = s.stats
             perf = f" [n={st.n} nukes={st.nukes}]" if st.n > 0 else ""
             out.append(f"- {s.skill_id}({s.name_cn})[{s.type}/{s.status}]{perf}")
+        out.append(
+            f"\n## 收缩纪律(重要):结构性收缩(retire / 加 taboo)要克制——"
+            f"**retire 需 n≥{min_retire_samples}**(样本不足会被拒);"
+            f"**faded 是空耗(没续上,score 0)不是亏损**,别只因 1-2 次 faded 就退役/加禁忌;"
+            f"**nuked(跌停/炸板)才是真亏**,优先据 nuke 收缩;能 patch 微调就别 retire。")
     elif pass_kind == "M":
         out.append("\n## 当前记忆:")
         for l in h.memory.all():
