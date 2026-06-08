@@ -122,3 +122,21 @@ DEEPSEEK_API_KEY=... python scripts/smoke_compare.py 20260529 20260605 1
 **一句话**:**1b-3d 把自进化从"有害"修成"无害(与 frozen 持平);让它"有益(超过 frozen)"是下一个更难的前沿**(需编辑真正改善决策、更长 horizon、更强信号)。
 
 **新增债务**:akshare 炸板池(`stock_zt_pool_zbgc_em`)**只覆盖最近 ~30 交易日**,超范围日**抛 ValueError 直接崩**(非优雅退化)——回测窗口受此硬约束;应在 `AkshareSource.zt_pool_blowup` 捕获"超范围"→ 返回空(或运行前校验窗口在范围内)。这也意味着**真正的历史回测需自建 PIT 数据(边跑边快照),不能依赖 akshare 拉历史池**(早已登记的 PIT 债务在此具象化)。
+
+---
+
+## 10. 收益打分真实跑:被 akshare 限流挡住(2026-06-08,1b-3e-2 后)
+
+收益打分链路并入 main(片1 oracle + 片2 接入,262 测试绿)后,尝试真实跑 `smoke_compare --scorer return`(horizon=2、temp=0、3 窗)。**结果:被 akshare 限流挡住,未取得可用收益对比。**
+
+**现象**:
+- 跑前发现并修了**两个真 gap**(运行才暴露):① `smoke_compare._MemoizedSource` 漏代理 `daily_ohlcv`(1b-3b 时还没这方法)→ ReturnScorer 取 OHLCV 必崩;② `AkshareSource` 取数**全程无 retry**(只有 DeepSeekClient 有)→ 单次网络抖动崩整轮。补:`_MemoizedSource.daily_ohlcv` memoize 代理 + `_retry_ak` 指数退避(ValueError 如 30 日限制不重试)。
+- 加 retry 后重跑:**窗口 1(05-12~19)跑完未崩,但四路全 0 候选**(同窗池成员制打分本有候选)——数据被**限流返空**(空池/空 OHLCV → 全 no-trade/被丢弃);**窗口 2、3 仍硬崩 `RemoteDisconnected`**(retry 4 次耗尽)。单发探针(`zt_pool` 单次)却正常。
+
+**诊断(高置信)**:收益打分对**每个候选每个评分步**都要 `daily_ohlcv`,叠加池取数,**调用量远大于池成员制** → 把 akshare/eastmoney **打到限流**(先软限流返空、再硬断连)。retry 救瞬时抖动,救不了**持续限流**。**非代码 bug——是 live-akshare 逐候选取数的吞吐撞墙。**
+
+**结论 / 这具象化了 PIT 债务**:**真实收益回测不能靠 live akshare 逐候选取数**。须做**数据治理**——窗口内一次性预取/快照所有需要的池 + OHLCV(PIT 存储),再**离线**对快照打分。这正是早登记的 PIT 债务,现有硬证据:**收益打分的吞吐需求让"边跑边 live 取数"不可行**。
+
+**已验证仍成立**:收益打分**机器本身没问题**——265 离线测试(含真实种子收益打分端到端 + 变异校验)全绿,窗口 1 也**跑完未崩**(只是数据被限流)。挡路的是数据供给,不是逻辑。
+
+**下一步候选**:① **PIT 数据治理**(预取/快照 + 离线打分)——解锁收益回测的真正前置;② 继续用**池成员制**(调用量小、能跑)做更多窗口聚合;③ 待 akshare 空闲时段小窗重试(治标)。
