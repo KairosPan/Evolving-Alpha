@@ -54,6 +54,26 @@ def _ymd(day: Date) -> str:
     return day.strftime("%Y%m%d")
 
 
+def _retry_ak(fn, tries: int = 4, backoff: float = 1.0, sleep=None):
+    """akshare 取数重试:网络抖动(connection reset 等)指数退避重试;ValueError(如炸板池 30 日限制)
+    等确定性错误不重试。多日多窗实盘 eval 必需——否则单次瞬时抖动崩整轮。sleep 可注入便于测试。"""
+    import time as _t
+    slp = sleep if sleep is not None else _t.sleep
+    last: Exception | None = None
+    for k in range(tries):
+        try:
+            return fn()
+        except ValueError:
+            raise                       # akshare 确定性错误(范围限制/无数据),不重试
+        except Exception as e:          # noqa: BLE001 — 网络抖动:退避重试
+            last = e
+            if k < tries - 1:
+                slp(backoff * (2 ** k))
+            else:
+                raise
+    raise last  # pragma: no cover
+
+
 class MarketDataSource(Protocol):
     """市场数据源契约(规整后英文列:code/name/boards/pct)。"""
     def trading_calendar(self) -> list[Date]: ...
@@ -72,25 +92,25 @@ class AkshareSource:
         self._ak = ak
 
     def trading_calendar(self) -> list[Date]:
-        df = self._ak.tool_trade_date_hist_sina()
+        df = _retry_ak(lambda: self._ak.tool_trade_date_hist_sina())
         return [pd.to_datetime(d).date() for d in df["trade_date"]]
 
     def zt_pool(self, day: Date) -> pd.DataFrame:
-        return _normalize(self._ak.stock_zt_pool_em(date=_ymd(day)))
+        return _normalize(_retry_ak(lambda: self._ak.stock_zt_pool_em(date=_ymd(day))))
 
     def zt_pool_previous(self, day: Date) -> pd.DataFrame:
-        return _normalize(self._ak.stock_zt_pool_previous_em(date=_ymd(day)))
+        return _normalize(_retry_ak(lambda: self._ak.stock_zt_pool_previous_em(date=_ymd(day))))
 
     def zt_pool_blowup(self, day: Date) -> pd.DataFrame:
-        return _normalize(self._ak.stock_zt_pool_zbgc_em(date=_ymd(day)))
+        return _normalize(_retry_ak(lambda: self._ak.stock_zt_pool_zbgc_em(date=_ymd(day))))
 
     def dt_pool(self, day: Date) -> pd.DataFrame:
-        return _normalize(self._ak.stock_zt_pool_dtgc_em(date=_ymd(day)))
+        return _normalize(_retry_ak(lambda: self._ak.stock_zt_pool_dtgc_em(date=_ymd(day))))
 
     def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame:
-        return _normalize_ohlcv(self._ak.stock_zh_a_hist(
+        return _normalize_ohlcv(_retry_ak(lambda: self._ak.stock_zh_a_hist(
             symbol=code, period="daily", start_date=_ymd(start),
-            end_date=_ymd(end), adjust="qfq"))
+            end_date=_ymd(end), adjust="qfq")))
 
 
 class GuardedSource:
