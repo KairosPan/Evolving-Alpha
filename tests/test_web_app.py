@@ -9,3 +9,26 @@ def test_shell_boots():
     r = client.get("/")
     assert r.status_code == 200
     assert "youzi" in r.text          # 外壳 chrome 渲染(图标轨 logo/标题)
+
+
+def test_home_redirects_to_research():
+    client = TestClient(create_app())
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/research/harness"
+
+
+def test_harness_page_renders_seed_h():
+    client = TestClient(create_app())
+    r = client.get("/research/harness")
+    assert r.status_code == 200
+    assert "命中率" in r.text and "纪律" in r.text and "记忆" in r.text
+    assert "弱转强" in r.text              # 种子真实技能 name_cn(seeds 第一个)
+
+
+def test_nav_shows_research_and_disabled_subitem():
+    client = TestClient(create_app())
+    r = client.get("/research/harness")
+    assert "📊" in r.text                  # 图标轨有 research
+    assert "refine 时间线" in r.text       # 子导航占位(disabled)渲染
+    assert "disabled" in r.text            # 灰显占位类

@@ -1,2 +1,4 @@
 # youzi_web/features/__init__.py
-FEATURES = []          # Task 3 改为 [research_feature]
+from youzi_web.features.research import feature as research_feature
+
+FEATURES = [research_feature]
