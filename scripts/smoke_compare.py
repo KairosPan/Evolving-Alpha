@@ -42,6 +42,7 @@ class _MemoizedSource:
         self._inner = inner
         self._cal: list[Date] | None = None
         self._pools: dict[tuple[str, Date], pd.DataFrame] = {}
+        self._ohlcv: dict[tuple[str, Date, Date], pd.DataFrame] = {}
 
     def trading_calendar(self) -> list[Date]:
         if self._cal is None:
@@ -65,6 +66,12 @@ class _MemoizedSource:
 
     def dt_pool(self, day: Date) -> pd.DataFrame:
         return self._pool("dt", self._inner.dt_pool, day)
+
+    def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        key = (code, start, end)                  # ReturnScorer 收益打分用;memoize 砍四路重复取数
+        if key not in self._ohlcv:
+            self._ohlcv[key] = self._inner.daily_ohlcv(code, start, end)
+        return self._ohlcv[key]
 
 
 def _fmt_arm(name: str, arm) -> str:
