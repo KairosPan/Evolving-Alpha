@@ -37,6 +37,7 @@ def test_cockpit_renders_market_and_candidate(tmp_path, monkeypatch):
     assert "连板梯队" in r.text and "最高板" in r.text       # 市场态面板
     assert "赢家" in r.text                                   # 样本候选 W/赢家
     assert "sample" in r.text                                 # 运行选择器
+    assert "未在种子 H 找到" in r.text                        # 样本 pattern「龙头接力」join 不到 → 降级提示(不渲染 plan 块)
 
 
 def test_cockpit_empty_state(tmp_path, monkeypatch):
