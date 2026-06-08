@@ -89,3 +89,31 @@ def test_apply_credit_idempotency_doubles():
     apply_credit(traj, h)
     apply_credit(traj, h)                               # 契约:每条 trajectory 调一次;调两次=累计翻倍
     assert h.skills.get("pat_a").stats.n == 2
+
+
+def test_apply_credit_uses_sc_score_for_expectancy():
+    # 直接用 sc.score(收益)算 expectancy,而非 SCORE[outcome]
+    from datetime import date
+    from youzi.eval.trajectory import Trajectory, TrajectoryStep
+    from youzi.eval.decision import DecisionPackage, Candidate
+    from youzi.eval.metrics import ScoredCandidate
+    from youzi.schemas.market import MarketState
+    from datetime import datetime
+    from youzi.refine.credit import apply_credit
+    from tests.test_metatools import _harness
+
+    h = _harness()                       # 技能 "a"(active),pattern 用 name_cn 解析
+    mkt = MarketState(date=date(2026, 6, 1), max_board_height=3, limit_up_count=5,
+                      blowup_count=1, blowup_rate=0.2, limit_down_count=0, echelon=[],
+                      money_effect_raw=1.0, sentiment_raw=0.0, as_of=datetime(2026, 6, 1, 15))
+    # outcome=continued(win)但 score=收益 +0.08(非 SCORE=1.0)
+    sc = ScoredCandidate(decision_date=date(2026, 6, 1), code="X", pattern="甲",
+                         outcome="continued", score=0.08)
+    step = TrajectoryStep(date=date(2026, 6, 1), market=mkt,
+                          decision=DecisionPackage(date=date(2026, 6, 1),
+                                                   candidates=[Candidate(code="X", pattern="甲")]),
+                          scored=True, outcomes={"X": sc})
+    rep = apply_credit(Trajectory(steps=[step], horizon=1), h)
+    assert h.skills.get("a").stats.expectancy == 0.08     # 用 sc.score,不是 1.0
+    assert h.skills.get("a").stats.wins == 1              # win 仍由 outcome=continued
+    assert rep.per_skill["a"].expectancy == 0.08
