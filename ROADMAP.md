@@ -1,7 +1,7 @@
 # ROADMAP — 自进化游资系统(youzi)
 
 > 总图:我们在造什么、走到哪、下一步去哪。详细交接见 `PROJECT_STATE.md`;实验记录见 `docs/findings/`;每阶段 spec/plan 见 `docs/superpowers/`。
-> 截至 2026-06-08 · `main` · **294 测试全绿(离线)**。
+> 截至 2026-06-08 · `main` · **299 测试全绿(离线)**。
 
 ---
 
@@ -47,6 +47,7 @@
 ### 前端平台(FE,2026-06-08 起 · FastAPI+HTMX 纯 Python · 模块化"加功能=加 features/<name>/")
 - **FE-0** web 地基:外壳 C(图标轨+子导航)+ 功能模块注册表 + `data_access` + 首模块 **research/H 查看器**。
 - **FE-B** 研究驾驶舱全量:`run_store`(持久化 ComparisonReport)+ 3 视图(**三方对比 / refine 时间线 / trajectory**,一份产物驱动)+ 运行选择器。
+- **FE-A** 决策驾驶舱:`features/decision`(🎯)离线渲染已存决策 —— 市场态面板(+连板梯队)+ 排序候选卡(理由/置信/**join 技能的计划**/结果)+ 空仓 + run/日期选择器。
 - 看成品:`python scripts/sample_run.py` → `python scripts/serve_web.py` → http://127.0.0.1:8000
 
 ---
@@ -78,7 +79,8 @@
 5. fill-feasibility(一字涨停次日买不进)、成本/滑点。
 
 ### C. 前端平台(成长型 · 加功能=加模块)
-1. **FE-A 决策驾驶舱**(下一步):每日决策展示(市场态 + 排序候选 + 理由 + 计划 + 人工确认),对 `SnapshotSource`+(Mock/live)LLM 跑。
+> ✅ FE-0 地基 / FE-B 研究驾驶舱 / **FE-A 决策驾驶舱**(离线渲染已存决策:市场态+候选卡+join技能计划)已并入 main。
+1. **live 按需跑决策/从 UI 触发跑批**:选今天 → agent 对 `SnapshotSource`+(Mock/live)LLM 跑出决策;或网页里跑 compare/capture(需异步任务 + akshare 恢复)。
 2. **从 UI 触发跑批**:网页里跑 compare/capture(需异步任务)。
 3. **news 分类**模块:新闻 → 题材/情绪信号(各自一个 `features/news/`)。
 4. **agents 编排**模块:可视化 InnerLoop/Refiner 编排(富交互画布可嵌 JS island)。
