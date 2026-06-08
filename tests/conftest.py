@@ -11,12 +11,19 @@ class FakeSource:
     """实现 MarketDataSource 协议的内存假源,用于离线测试。"""
 
     def __init__(self, frames: dict[tuple[str, date], pd.DataFrame],
-                 calendar: list[date]):
+                 calendar: list[date], ohlcv: dict[str, pd.DataFrame] | None = None):
         self._frames = frames
         self._calendar = calendar
+        self._ohlcv = ohlcv or {}
 
     def trading_calendar(self) -> list[date]:
         return list(self._calendar)
+
+    def daily_ohlcv(self, code: str, start: date, end: date) -> pd.DataFrame:
+        df = self._ohlcv.get(code)
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+        return df[(df["date"] >= start) & (df["date"] <= end)].copy()
 
     def _get(self, kind: str, day: date) -> pd.DataFrame:
         return self._frames.get((kind, day), pd.DataFrame())

@@ -32,6 +32,24 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+_OHLCV_RENAME = {"日期": "date", "开盘": "open", "收盘": "close",
+                 "最高": "high", "最低": "low", "成交量": "volume"}
+
+
+def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """akshare 日线中文列 -> 英文;date->date 对象;OHLCV->数值。空 -> 带列空 df。"""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+    out = df.rename(columns=_OHLCV_RENAME).copy()
+    out = out.loc[:, ~out.columns.duplicated()]
+    if "date" in out.columns:
+        out["date"] = pd.to_datetime(out["date"]).dt.date
+    for c in ("open", "high", "low", "close", "volume"):
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+    return out
+
+
 def _ymd(day: Date) -> str:
     return day.strftime("%Y%m%d")
 
@@ -43,6 +61,7 @@ class MarketDataSource(Protocol):
     def zt_pool_previous(self, day: Date) -> pd.DataFrame: ...
     def zt_pool_blowup(self, day: Date) -> pd.DataFrame: ...
     def dt_pool(self, day: Date) -> pd.DataFrame: ...
+    def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame: ...
 
 
 class AkshareSource:
@@ -67,6 +86,11 @@ class AkshareSource:
 
     def dt_pool(self, day: Date) -> pd.DataFrame:
         return _normalize(self._ak.stock_zt_pool_dtgc_em(date=_ymd(day)))
+
+    def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        return _normalize_ohlcv(self._ak.stock_zh_a_hist(
+            symbol=code, period="daily", start_date=_ymd(start),
+            end_date=_ymd(end), adjust="qfq"))
 
 
 class GuardedSource:
@@ -94,3 +118,7 @@ class GuardedSource:
     def dt_pool(self, day: Date) -> pd.DataFrame:
         self._guard.check(day)
         return self._inner.dt_pool(day)
+
+    def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        self._guard.check(end)            # 打分时刻 as_of≥t+N 合法;越界(end>as_of)→ LookaheadError
+        return self._inner.daily_ohlcv(code, start, end)
