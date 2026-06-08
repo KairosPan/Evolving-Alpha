@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from youzi.data.source import _normalize_ohlcv, GuardedSource
+from youzi.eval.return_oracle import forward_return, ReturnOracle
 from youzi.replay.firewall import AsOfGuard, LookaheadError
 from tests.conftest import FakeSource
 
@@ -48,3 +49,38 @@ def test_guarded_daily_ohlcv_blocks_future():
     # end > as_of:拦截
     with pytest.raises(LookaheadError):
         gs.daily_ohlcv("000001", date(2026, 6, 2), date(2026, 6, 5))
+
+
+def test_forward_return_normal_and_negative():
+    df = _ohlcv([(date(2026, 6, 2), 10.0, 11, 9.5, 10.5, 100),
+                 (date(2026, 6, 3), 10.6, 12.5, 10.4, 12.0, 200)])
+    # entry open@6/2=10.0, exit close@6/3=12.0 → +0.20
+    assert forward_return(df, date(2026, 6, 2), date(2026, 6, 3)) == 0.20
+    # 负收益:entry open=10.0, exit close=8.0
+    df2 = _ohlcv([(date(2026, 6, 2), 10.0, 11, 9, 10, 100),
+                  (date(2026, 6, 3), 9.0, 9.5, 7.5, 8.0, 200)])
+    assert forward_return(df2, date(2026, 6, 2), date(2026, 6, 3)) == -0.20
+
+
+def test_forward_return_missing_returns_none():
+    df = _ohlcv([(date(2026, 6, 2), 10.0, 11, 9.5, 10.5, 100)])
+    assert forward_return(df, date(2026, 6, 1), date(2026, 6, 2)) is None   # entry 不在
+    assert forward_return(df, date(2026, 6, 2), date(2026, 6, 9)) is None   # exit 不在
+    assert forward_return(pd.DataFrame(), date(2026, 6, 2), date(2026, 6, 3)) is None  # 空 df
+
+
+def test_forward_return_bad_open_returns_none():
+    nan_open = _ohlcv([(date(2026, 6, 2), float("nan"), 11, 9, 10, 100),
+                       (date(2026, 6, 3), 10, 12, 10, 11, 200)])
+    assert forward_return(nan_open, date(2026, 6, 2), date(2026, 6, 3)) is None
+    zero_open = _ohlcv([(date(2026, 6, 2), 0.0, 11, 9, 10, 100),
+                        (date(2026, 6, 3), 10, 12, 10, 11, 200)])
+    assert forward_return(zero_open, date(2026, 6, 2), date(2026, 6, 3)) is None
+
+
+def test_return_oracle_score():
+    df = _ohlcv([(date(2026, 6, 2), 10.0, 11, 9.5, 10.5, 100),
+                 (date(2026, 6, 3), 10.6, 12.5, 10.4, 12.0, 200)])
+    o = ReturnOracle(FakeSource({}, [], ohlcv={"000001": df}))
+    assert o.score("000001", date(2026, 6, 2), date(2026, 6, 3)) == 0.20
+    assert o.score("999999", date(2026, 6, 2), date(2026, 6, 3)) is None    # 缺该 code → None
