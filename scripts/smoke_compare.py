@@ -76,7 +76,8 @@ def _fmt_arm(name: str, arm) -> str:
     return line
 
 
-def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.3) -> None:
+def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.3,
+         scorer_kind: str = "pool") -> None:
     if not os.environ.get("DEEPSEEK_API_KEY"):
         print("缺少 DEEPSEEK_API_KEY(export 或 inline 传入)。"); sys.exit(1)
     start = datetime.strptime(start_ymd, "%Y%m%d").date()
@@ -84,9 +85,13 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
     seeds = Path(__file__).resolve().parent.parent / "seeds"
     tmp = tempfile.mkdtemp(prefix="youzi_compare_")
 
+    from youzi.eval.scorer import PoolScorer, ReturnScorer
+    scorer = ReturnScorer() if scorer_kind == "return" else PoolScorer()
+
     src = _MemoizedSource(AkshareSource())
     n_days = sum(1 for d in src.trading_calendar() if start <= d <= end)
-    print(f"区间 {start}~{end} 内交易日 {n_days} 个,horizon={horizon},temperature={temperature}。"
+    print(f"区间 {start}~{end} 内交易日 {n_days} 个,horizon={horizon},temperature={temperature},"
+          f"scorer={scorer_kind}(return 模式下期望分读作平均收益)。"
           f"\n预计 DeepSeek 调用 ≈ HCH({n_days} agent + ~{max(0, n_days - horizon) * 3} refiner) "
           f"+ Hexpert({n_days} agent)。开始(慢且花钱)…\n")
 
@@ -96,6 +101,7 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
         refiner_llm_factory=lambda: DeepSeekClient(temperature=temperature),
         store_factory=lambda: SnapshotStore(Path(tmp)),
         loop_config=LoopConfig(horizon=horizon),
+        scorer=scorer,
     )
 
     print("=== 三方度量对比(同窗同 oracle)===")
@@ -131,9 +137,10 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("用法: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py <start_ymd> <end_ymd> [horizon] [temperature]")
-        print("例:  DEEPSEEK_API_KEY=sk-... python scripts/smoke_compare.py 20240601 20240607 1 0.0")
+        print("用法: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py <start_ymd> <end_ymd> [horizon] [temperature] [scorer:pool|return]")
+        print("例:  DEEPSEEK_API_KEY=sk-... python scripts/smoke_compare.py 20240601 20240607 2 0.0 return")
         sys.exit(1)
     main(sys.argv[1], sys.argv[2],
          int(sys.argv[3]) if len(sys.argv) > 3 else 1,
-         float(sys.argv[4]) if len(sys.argv) > 4 else 0.3)
+         float(sys.argv[4]) if len(sys.argv) > 4 else 0.3,
+         sys.argv[5] if len(sys.argv) > 5 else "pool")
