@@ -20,3 +20,6 @@ checkpoints/
 *.ckpt
 *.safetensors
 .superpowers/
+
+# run-store(compare 运行结果落盘,YOUZI_RUNS_DIR 默认目录)
+runs/
