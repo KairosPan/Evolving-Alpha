@@ -42,10 +42,13 @@ _NO_TRADE = '{"candidates": [], "no_trade_reason": "空仓"}'
 
 
 def _w_src():
-    """单码 W 每日涨停(continued);3 日。"""
+    """单码 W 每日涨停(continued);3 日。带 W 的 OHLCV(覆盖 6/27、6/28),使 ReturnScorer 可算收益。"""
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
     frames = {("zt", d): pd.DataFrame({"code": ["W"], "name": ["赢家"], "boards": [2]}) for d in days}
-    return FakeSource(frames, days)
+    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
+                               (date(2024, 6, 28), 10.6, 12, 10, 11.0, 200)],
+                              columns=["date", "open", "high", "low", "close", "volume"])}
+    return FakeSource(frames, days, ohlcv=ohlcv)
 
 
 class _SeqFactory:
@@ -72,7 +75,7 @@ class _CountFactory:
         return self._fn()
 
 
-def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None):
+def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, scorer=None):
     src = _w_src()
     agent_f = _SeqFactory(agent_scripts)
     refiner_f = _SeqFactory([refiner_script])
@@ -81,7 +84,7 @@ def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None):
     rep = compare_harnesses(
         harness_f, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         agent_llm_factory=agent_f, refiner_llm_factory=refiner_f,
-        store_factory=store_f, loop_config=cfg or LoopConfig())
+        store_factory=store_f, loop_config=cfg or LoopConfig(), scorer=scorer)
     return rep, agent_f, refiner_f, store_f, harness_f
 
 
@@ -130,3 +133,10 @@ def test_hch_loop_report_exposed_for_introspection(tmp_path):
     assert rep.hch_loop_report is not None
     assert len(rep.hch_loop_report.refine_events) == rep.arms["HCH"].n_refines
     assert len(rep.hch_loop_report.breaker_events) == rep.arms["HCH"].n_breaker_trips
+
+
+def test_compare_accepts_scorer(tmp_path):
+    from youzi.eval.scorer import ReturnScorer
+    rep, *_ = _compare(tmp_path, [_PICK_W], scorer=ReturnScorer())
+    # 四路齐全;HCH 的 EvalReport 存在(收益打分)
+    assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}

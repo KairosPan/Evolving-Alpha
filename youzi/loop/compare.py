@@ -49,6 +49,7 @@ def compare_harnesses(
     store_factory: Callable[[], SnapshotStore],
     loop_config: LoopConfig | None = None,
     refiner_config: RefinerConfig | None = None,
+    scorer=None,
 ) -> ComparisonReport:
     """四路同窗同 oracle 对比:HCH(自精炼内环)vs Hexpert(冻结种子 H + agent,无 Refiner)
     vs Hmin(HighestBoard / NoTrade)。每路独立 fresh 种子 H + 独立 LLM client(防交叉污染)。"""
@@ -57,7 +58,7 @@ def compare_harnesses(
     # HCH:自精炼内环
     mgr = HarnessManager(harness_factory(), store_factory())
     loop = InnerLoop(mgr, source, start, end, agent_llm_factory(),
-                     refiner_llm_factory(), cfg, refiner_config)
+                     refiner_llm_factory(), cfg, refiner_config, scorer=scorer)
     lr = loop.run()
     hch_eval = report_from_trajectory(lr.trajectory)
     hch_arm = ArmReport(name="HCH", report=hch_eval,
@@ -66,7 +67,7 @@ def compare_harnesses(
                         frozen_from=lr.frozen_from)
 
     # Hexpert:冻结种子 H + agent(无 Refiner → H 全程不变)
-    wf = WalkForwardEval(source, start, end, horizon=cfg.horizon)
+    wf = WalkForwardEval(source, start, end, horizon=cfg.horizon, scorer=scorer)
     hexpert_eval = wf.run(LLMAgentPolicy(harness_factory(), agent_llm_factory()))
     hexpert_arm = ArmReport(name="Hexpert", report=hexpert_eval)
 
