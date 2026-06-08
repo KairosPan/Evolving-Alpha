@@ -8,6 +8,7 @@ from youzi.harness.harness import HarnessState
 from youzi.harness.loader import load_seeds
 from youzi.harness.snapshot import SnapshotStore
 from youzi.loop.run_store import RunStore
+from youzi.refine.credit import resolve_skill
 
 SEEDS_DIR = Path(__file__).resolve().parent.parent / "seeds"
 
@@ -47,3 +48,12 @@ def load_run(run_id: str):
         return RunStore(_runs_dir()).load(run_id)
     except FileNotFoundError:
         return None, None
+
+
+def skill_plan(pattern: str, harness) -> dict | None:
+    """候选 pattern → 种子技能的"计划"。join 不到 → None(模板降级)。"""
+    sk = resolve_skill(pattern, harness)
+    if sk is None:
+        return None
+    return {"name_cn": sk.name_cn, "trigger": sk.trigger, "entry": sk.entry,
+            "exit_stop": sk.exit_stop, "taboo": list(sk.taboo)}
