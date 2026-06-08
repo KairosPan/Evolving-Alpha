@@ -51,10 +51,12 @@ def test_sample_run_writes_a_run(tmp_path, monkeypatch):
     assert "HCH" in rep.arms
 
 
-def test_list_skips_foreign_or_corrupt_files(tmp_path):
-    # 逐文件守卫:外来(无 meta)/截断 json 被跳过,不拖垮整列(否则看板全 500)
+def test_list_skips_foreign_corrupt_binary_and_dotfiles(tmp_path):
+    # 逐文件守卫:外来(无 meta)/截断 json / 二进制(macOS ._AppleDouble)/ 隐藏文件 都跳过,不拖垮整列(否则看板全 500)
     store = RunStore(tmp_path)
     store.save("good", make_report(), {"window": "w"})
     (tmp_path / "foreign.json").write_text('{"hello": "world"}', encoding="utf-8")
     (tmp_path / "broken.json").write_text('{"meta": {', encoding="utf-8")
+    (tmp_path / "binary.json").write_bytes(b"\x00Mac OS X\xb0\xb0bad utf8")   # 非 UTF-8(/Volumes 上 ._*.json 之患)
+    (tmp_path / "._good.json").write_bytes(b"\x00\xb0AppleDouble")            # 隐藏 ._ 文件
     assert [m["run_id"] for m in store.list()] == ["good"]

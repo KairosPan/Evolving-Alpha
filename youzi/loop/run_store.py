@@ -40,9 +40,11 @@ class RunStore:
             return []
         metas = []
         for p in self._root.glob("*.json"):
-            try:                                       # 逐文件守卫:一个外来/损坏文件不拖垮整列(否则看板全 500)
+            if p.name.startswith("."):                 # 跳过 ._AppleDouble/隐藏(macOS 非原生卷如 /Volumes 会生成二进制 ._*.json)
+                continue
+            try:                                       # 逐文件守卫:一个外来/损坏/二进制文件不拖垮整列(否则看板全 500)
                 metas.append(json.loads(p.read_text(encoding="utf-8"))["meta"])
-            except (json.JSONDecodeError, KeyError, OSError):
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError, OSError):
                 continue
         return sorted(metas, key=lambda m: m["run_id"], reverse=True)   # 新→旧
 
