@@ -16,6 +16,18 @@ def _src():
     return FakeSource(frames, days, ohlcv=ohlcv)
 
 
+def test_capture_ohlcv_valueerror_stored_empty(tmp_path):
+    # OHLCV 取数抛 ValueError(新上市/退市/异常代码)→ 存空帧、capture 完成,不永久卡死
+    class _OhlcvRaises(FakeSource):
+        def daily_ohlcv(self, code, start, end):
+            raise ValueError("代码异常")
+    days = [date(2026, 6, 2)]
+    frames = {("zt", days[0]): pd.DataFrame({"code": ["A"], "boards": [2]})}
+    store = PITStore(tmp_path)
+    capture_window(_OhlcvRaises(frames, days, ohlcv={}), store, days[0], days[0], sleep=lambda d: None)
+    assert store.has_ohlcv("A") and store.get_ohlcv("A").empty
+
+
 def test_capture_writes_pools_ohlcv_calendar(tmp_path):
     store = PITStore(tmp_path)
     summ = capture_window(_src(), store, date(2026, 6, 1), date(2026, 6, 3), sleep=lambda d: None)

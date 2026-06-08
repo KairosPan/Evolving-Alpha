@@ -43,3 +43,13 @@ def test_calendar_roundtrip_and_missing(tmp_path):
     days = [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)]
     store.put_calendar(days)
     assert store.get_calendar() == days        # date 对象,顺序保持
+
+
+def test_atomic_writes_leave_no_tmp(tmp_path):
+    # 原子写:三类写都经 temp+os.replace,完成后不留 .tmp(硬 kill 只留 .tmp 被 has() 忽略,不留截断文件)
+    store = PITStore(root=tmp_path)
+    store.put("zt", date(2026, 6, 2), pd.DataFrame({"code": ["A"]}))
+    store.put_ohlcv("A", pd.DataFrame([(date(2026, 6, 2), 1.0, 1, 1, 1, 1)],
+                                      columns=["date", "open", "high", "low", "close", "volume"]))
+    store.put_calendar([date(2026, 6, 2)])
+    assert list(tmp_path.rglob("*.tmp")) == []

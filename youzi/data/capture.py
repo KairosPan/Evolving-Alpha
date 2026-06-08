@@ -45,7 +45,11 @@ def capture_window(ak_source, store: PITStore, start: Date, end: Date,
                 codes.update(str(c) for c in df["code"])
     for code in sorted(codes):
         if not store.has_ohlcv(code):
-            store.put_ohlcv(code, ak_source.daily_ohlcv(code, start, end))
+            try:
+                df = ak_source.daily_ohlcv(code, start, end)
+            except ValueError:                       # 确定性错(新上市/退市/异常代码)→ 存空帧,与池阶段对称、防永久卡死
+                df = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+            store.put_ohlcv(code, df)
             calls += 1
             slp(throttle)
     return CaptureSummary(n_days=len(window), n_codes=len(codes), n_calls=calls)

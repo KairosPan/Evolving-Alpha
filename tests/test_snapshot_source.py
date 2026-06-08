@@ -36,3 +36,16 @@ def test_ohlcv_slice_date_objects_and_missing_empty(tmp_path):
     assert list(got["date"]) == [date(2026, 6, 2), date(2026, 6, 3)]   # 切片 + date 对象
     assert isinstance(got["date"].iloc[0], date)
     assert src.daily_ohlcv("MISSING", date(2026, 6, 2), date(2026, 6, 3)).empty   # 缺 code → 空
+
+
+def test_guarded_snapshot_source_blocks_future_ohlcv(tmp_path):
+    # 防火墙:SnapshotSource 经 GuardedSource 套后,end>as_of 仍被拦(≤as_of 不变)
+    from youzi.data.source import GuardedSource
+    from youzi.replay.firewall import AsOfGuard, LookaheadError
+    store = PITStore(tmp_path)
+    store.put_ohlcv("A", pd.DataFrame([(date(2026, 6, 2), 10.0, 11, 9, 10.5, 100)],
+                                      columns=["date", "open", "high", "low", "close", "volume"]))
+    gs = GuardedSource(SnapshotSource(store), AsOfGuard(date(2026, 6, 2)))
+    assert not gs.daily_ohlcv("A", date(2026, 6, 2), date(2026, 6, 2)).empty   # end≤as_of 放行
+    with pytest.raises(LookaheadError):
+        gs.daily_ohlcv("A", date(2026, 6, 2), date(2026, 6, 5))                # end>as_of 拦截
