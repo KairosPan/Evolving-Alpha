@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}三方对比{% endblock %}
+{% block topbar %}<b>三方对比</b>
+{% if runs %}<select onchange="location.href='?run='+this.value" style="margin-left:auto;">
+  {% for m in runs %}<option value="{{ m.run_id }}" {% if m.run_id == run_id %}selected{% endif %}>{{ m.window }} · {{ m.scorer }}</option>{% endfor %}
+</select>{% endif %}{% endblock %}
+{% block content %}
+{% if not report %}<div class="card">还没有运行结果。跑 <code>python scripts/sample_run.py</code> 或 <code>smoke_compare</code> 生成。</div>
+{% else %}
+<div class="label">{{ meta.window }} · scorer={{ meta.scorer }}</div>
+<table class="data">
+  <thead><tr><th>路</th><th>候选</th><th>期望分</th><th>命中率</th><th>被砸率</th><th>refine</th><th>熔断</th></tr></thead>
+  <tbody>
+  {% for name in ['HCH', 'Hexpert', 'Hmin_highest', 'Hmin_notrade'] %}
+    {% set arm = report.arms[name] %}
+    <tr><td>{{ name }}</td><td>{{ arm.report.n_candidates }}</td>
+      <td>{{ '%+.4f' | format(arm.report.mean_score) }}</td>
+      <td>{{ '%.3f' | format(arm.report.hit_rate) }}</td>
+      <td>{{ '%.3f' | format(arm.report.nuke_rate) }}</td>
+      <td>{{ arm.n_refines if arm.n_refines is not none else '—' }}</td>
+      <td>{{ arm.n_breaker_trips if arm.n_breaker_trips is not none else '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="card" style="margin-top:14px;">
+  <b>HCH − Hexpert</b>　Δ期望分 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_score) }}　Δ命中率 {{ '%+.4f' | format(report.hch_minus_hexpert_hit_rate) }}　Δ被砸率 {{ '%+.4f' | format(report.hch_minus_hexpert_nuke_rate) }}<br>
+  verdict: {% if report.hch_beats_hexpert %}<span class="status-active">✅ HCH 胜 frozen</span>{% else %}<span class="status-retired">❌ HCH 未胜(持平/退化)</span>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

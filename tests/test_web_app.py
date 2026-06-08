@@ -37,9 +37,9 @@ def test_harness_page_renders_seed_h():
     assert "弱转强" in r.text              # 种子真实技能 name_cn(seeds 第一个)
 
 
-def test_nav_shows_research_and_disabled_subitem():
+def test_nav_shows_research_with_lit_subitems():
     client = TestClient(create_app())
     r = client.get("/research/harness")
-    assert "📊" in r.text                  # 图标轨有 research
-    assert "refine 时间线" in r.text       # 子导航占位(disabled)渲染
-    assert "disabled" in r.text            # 灰显占位类
+    assert "📊" in r.text                       # 图标轨有 research
+    assert "refine 时间线" in r.text            # 子导航渲染
+    assert "/research/refine" in r.text         # FE-B 已点亮:子页有 href(非灰显占位)

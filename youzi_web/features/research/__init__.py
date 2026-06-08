@@ -6,8 +6,8 @@ feature = Feature(
     id="research", label="研究", icon="📊", router=router,
     subnav=[
         SubNavItem("H 查看器", "/research/harness"),
-        SubNavItem("refine 时间线", "/research/refine", enabled=False),
-        SubNavItem("三方对比", "/research/compare", enabled=False),
-        SubNavItem("trajectory", "/research/trajectory", enabled=False),
+        SubNavItem("三方对比", "/research/compare"),
+        SubNavItem("refine 时间线", "/research/refine"),
+        SubNavItem("trajectory", "/research/trajectory"),
     ],
 )
