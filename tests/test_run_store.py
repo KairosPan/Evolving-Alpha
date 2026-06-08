@@ -39,3 +39,13 @@ def test_list_newest_first_and_atomic(tmp_path):
     ids = [m["run_id"] for m in store.list()]
     assert ids == ["bbb", "aaa"]                 # 新→旧(run_id 倒序)
     assert list(tmp_path.glob("*.tmp")) == []    # 原子写不留临时
+
+
+def test_sample_run_writes_a_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("YOUZI_RUNS_DIR", str(tmp_path))
+    import scripts.sample_run as sr
+    sr.main()
+    metas = RunStore(tmp_path).list()
+    assert any(m["run_id"] == "sample" for m in metas)
+    rep, _ = RunStore(tmp_path).load("sample")
+    assert "HCH" in rep.arms

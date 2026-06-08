@@ -118,6 +118,13 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
         scorer=scorer,
     )
 
+    from youzi.loop.run_store import RunStore
+    run_id = f"{start_ymd}_{end_ymd}_{scorer_kind}_{datetime.now().strftime('%H%M%S')}"
+    RunStore(Path(os.environ.get("YOUZI_RUNS_DIR", "runs"))).save(run_id, rep, {
+        "window": f"{start}~{end}", "scorer": scorer_kind, "horizon": horizon,
+        "temperature": temperature, "created": datetime.now().isoformat(timespec="seconds")})
+    print(f"[run-store] 已存 run: {run_id}")
+
     print("=== 三方度量对比(同窗同 oracle)===")
     for name in ("HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"):
         print(_fmt_arm(name, rep.arms[name]))
