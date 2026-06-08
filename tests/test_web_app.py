@@ -1,7 +1,18 @@
 # tests/test_web_app.py
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
-from youzi_web.app import create_app
+from youzi_web.app import create_app, _first_enabled_path
+from youzi_web.registry import Feature, SubNavItem
+
+
+def test_first_enabled_path_skips_disabled():
+    # home 落地点必须跳过 disabled 占位(防新模块注册在前且首项占位时 / → 404)
+    feats = [Feature("x", "X", "🅇", APIRouter(),
+                     [SubNavItem("soon", "/x/soon", enabled=False),
+                      SubNavItem("ok", "/x/ok")])]
+    assert _first_enabled_path(feats) == "/x/ok"
+    assert _first_enabled_path([]) is None
 
 
 def test_shell_boots():

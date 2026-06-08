@@ -26,6 +26,7 @@ table.data th { text-align: left; color: #889; font-weight: 600; padding: 7px 10
 table.data td { padding: 7px 10px; border-bottom: 1px solid #f1f1f7; }
 .status-active { color: #1f7a50; }
 .status-incubating { color: #b8860b; }
+.status-dormant { color: #7a7a99; }
 .status-retired { color: #999; }
 .cols { display: flex; gap: 14px; margin-top: 16px; align-items: flex-start; }
 .cols > section { flex: 1; min-width: 0; }

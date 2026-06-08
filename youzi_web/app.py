@@ -22,6 +22,11 @@ def _make_templates() -> Jinja2Templates:
     return Jinja2Templates(env=env)
 
 
+def _first_enabled_path(features) -> str | None:
+    """首个 enabled 子页路径——home 落地点。跳过 disabled 占位,防新模块注册在前且首项占位时 / → 404。"""
+    return next((item.path for f in features for item in f.subnav if item.enabled), None)
+
+
 def create_app() -> FastAPI:
     from youzi_web.features import FEATURES
     app = FastAPI(title="youzi")
@@ -33,9 +38,10 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def home(request: Request):
-        if FEATURES and FEATURES[0].subnav:
-            return RedirectResponse(FEATURES[0].subnav[0].path)
-        # 空注册表:渲染外壳 landing
+        target = _first_enabled_path(FEATURES)
+        if target:
+            return RedirectResponse(target)
+        # 空注册表 / 无 enabled 子页:渲染外壳 landing
         return app.state.templates.TemplateResponse(
             request,
             "base.html",
