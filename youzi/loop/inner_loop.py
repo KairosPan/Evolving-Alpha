@@ -6,8 +6,8 @@ from datetime import date as Date
 from pydantic import BaseModel, ConfigDict, Field
 
 from youzi.agent.agent import LLMAgentPolicy
-from youzi.eval.metrics import ScoredCandidate
-from youzi.eval.oracle import SCORE, PoolRecord, outcome
+from youzi.eval.oracle import PoolRecord
+from youzi.eval.scorer import PoolScorer
 from youzi.eval.trajectory import EntrySnap, Trajectory, TrajectoryStep
 from youzi.harness.manager import HarnessManager
 from youzi.llm.client import LLMClient
@@ -68,7 +68,8 @@ class InnerLoop:
     def __init__(self, manager: HarnessManager, source, start: Date, end: Date,
                  agent_llm: LLMClient, refiner_llm: LLMClient,
                  config: LoopConfig | None = None,
-                 refiner_config: RefinerConfig | None = None) -> None:
+                 refiner_config: RefinerConfig | None = None,
+                 scorer=None) -> None:
         self._mgr = manager
         self._source = source
         self._start = start
@@ -77,6 +78,7 @@ class InnerLoop:
         self._refiner_llm = refiner_llm
         self._cfg = config or LoopConfig()
         self._refiner_cfg = refiner_config or RefinerConfig()
+        self._scorer = scorer or PoolScorer()
         self._rebind()
 
     def _rebind(self) -> None:
@@ -124,16 +126,9 @@ class InnerLoop:
                 if idx >= j + cfg.horizon:
                     mem = record.get(days_seen[j + cfg.horizon])
                     assert mem is not None, f"BUG: {days_seen[j + cfg.horizon]} 未录成员"
-                    dp = drafts[j]["decision"]
-                    seen: set[str] = set()
-                    outcomes: dict[str, ScoredCandidate] = {}
-                    for c in dp.candidates:
-                        if c.code in seen:
-                            continue
-                        seen.add(c.code)
-                        oc = outcome(c.code, mem)
-                        outcomes[c.code] = ScoredCandidate(decision_date=dp.date, code=c.code,
-                                                           pattern=c.pattern, outcome=oc, score=SCORE[oc])
+                    outcomes = self._scorer.score_step(
+                        drafts[j]["decision"], mem,
+                        days_seen[j + 1], days_seen[j + cfg.horizon], engine.guarded_source)
                     drafts[j]["outcomes"] = outcomes
                     drafts[j]["scored"] = True
                     step_j = TrajectoryStep(**drafts[j])

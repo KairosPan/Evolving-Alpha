@@ -169,6 +169,25 @@ def test_loop_config_rejects_degenerate():
             LoopConfig(**bad)
 
 
+def test_inner_loop_accepts_return_scorer(tmp_path):
+    from youzi.eval.scorer import ReturnScorer
+    days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
+    frames = {("zt", d): pd.DataFrame({"code": ["W"], "name": ["赢家"], "boards": [2]}) for d in days}
+    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
+                                (date(2024, 6, 28), 10.6, 12, 10, 11.0, 200)],
+                               columns=["date", "open", "high", "low", "close", "volume"])}
+    src = FakeSource(frames, days, ohlcv=ohlcv)
+    mgr = _mgr(tmp_path)
+    loop = InnerLoop(mgr, src, days[0], days[-1], MockLLMClient(_decision("W")),
+                     MockLLMClient('{"ops": []}'),
+                     config=LoopConfig(horizon=1, breaker_min_samples=10_000),
+                     scorer=ReturnScorer())
+    rep = loop.run()
+    # 决策 6/26 → entry=exit=6/27:(10.5−10)/10=+0.05;score 为收益
+    sc = rep.trajectory.scored_steps()[0].outcomes["W"]
+    assert sc.outcome == "continued" and abs(sc.score - 0.05) < 1e-9
+
+
 def test_refine_skips_zero_evidence_no_trade_days(tmp_path):
     # 冰点:zt 池空、agent 空仓 → 所有已评分步 outcomes={} → 不应触发 refine(省 LLM/磁盘)
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
