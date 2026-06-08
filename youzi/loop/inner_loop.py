@@ -25,8 +25,10 @@ class LoopConfig(BaseModel):
     credit_window: int = Field(default=10, ge=1)     # 给 refiner 的证据窗口(最近 N 个已评分步)
     breaker_window: int = Field(default=20, ge=1)    # 滚动 expectancy 窗口(最近 N 个已评分候选)
     baseline_window: int = Field(default=20, ge=1)   # 基线 = 前 N 个已评分候选均值
-    floor_abs: float = Field(default=-0.2, ge=-1.0, le=1.0)   # 绝对地板:rolling < floor_abs → 熔断(SCORE∈[−1,1])
-    floor_rel_margin: float = Field(default=0.15, ge=0.0)     # 相对地板:rolling < baseline - margin → 熔断
+    # ⚠ 熔断阈值按**池 SCORE∈{−1,0,1}**标定;配 ReturnScorer 时 score=前向收益(~±0.1/日),
+    #   floor_abs=-0.2 几乎不触发、margin 仅捕极端漂移——熔断须随 scorer 重标定(债务,见 spec §9)。
+    floor_abs: float = Field(default=-0.2, ge=-1.0, le=1.0)   # 绝对地板:rolling < floor_abs → 熔断(池 SCORE 标定)
+    floor_rel_margin: float = Field(default=0.15, ge=0.0)     # 相对地板:rolling < baseline - margin → 熔断(同上)
     breaker_min_samples: int = Field(default=40, ge=1)        # 已评分候选数 >= 此值才可能熔断
 
 
