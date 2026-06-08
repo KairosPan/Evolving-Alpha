@@ -4,7 +4,8 @@ from datetime import date as Date
 
 from youzi.eval.decision import DecisionPolicy
 from youzi.eval.metrics import EvalReport, ScoredCandidate, build_report
-from youzi.eval.oracle import SCORE, PoolRecord, outcome
+from youzi.eval.oracle import PoolRecord
+from youzi.eval.scorer import PoolScorer
 from youzi.eval.trajectory import EntrySnap, Trajectory, TrajectoryStep
 from youzi.replay.engine import ReplayEngine
 from youzi.universe.universe import build_universe
@@ -23,13 +24,14 @@ def report_from_trajectory(traj: Trajectory) -> EvalReport:
 class WalkForwardEval:
     """前向回放评测:策略每日决策(≤t 快照),horizon 天后用已实现 pool 成员延迟打分。"""
 
-    def __init__(self, source, start: Date, end: Date, horizon: int = 1) -> None:
+    def __init__(self, source, start: Date, end: Date, horizon: int = 1, scorer=None) -> None:
         if horizon < 1:
             raise ValueError(f"horizon 必须 >=1, got {horizon}")
         self._source = source
         self._start = start
         self._end = end
         self._horizon = horizon
+        self._scorer = scorer or PoolScorer()
 
     def walk(self, policy: DecisionPolicy) -> Trajectory:
         """走完区间,产出 Trajectory(每步含 market/decision/entries,horizon 日回填 outcomes)。"""
@@ -64,17 +66,9 @@ class WalkForwardEval:
                 if idx >= j + self._horizon:
                     mem = record.get(days_seen[j + self._horizon])
                     assert mem is not None, f"BUG: 交易日 {days_seen[j + self._horizon]} 未录制成员"
-                    dp = drafts[j]["decision"]
-                    seen: set[str] = set()
-                    outcomes: dict[str, ScoredCandidate] = {}
-                    for c in dp.candidates:
-                        if c.code in seen:
-                            continue
-                        seen.add(c.code)
-                        oc = outcome(c.code, mem)
-                        outcomes[c.code] = ScoredCandidate(
-                            decision_date=dp.date, code=c.code, pattern=c.pattern,
-                            outcome=oc, score=SCORE[oc])
+                    outcomes = self._scorer.score_step(
+                        drafts[j]["decision"], mem,
+                        days_seen[j + 1], days_seen[j + self._horizon], engine.guarded_source)
                     drafts[j]["outcomes"] = outcomes
                     drafts[j]["scored"] = True
                 else:
