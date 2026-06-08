@@ -95,7 +95,14 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
     from youzi.eval.scorer import PoolScorer, ReturnScorer
     scorer = ReturnScorer() if scorer_kind == "return" else PoolScorer()
 
-    src = _MemoizedSource(AkshareSource())
+    snap = os.environ.get("YOUZI_SNAPSHOT")
+    if snap:
+        from youzi.data.cache import PITStore
+        from youzi.data.snapshot_source import SnapshotSource
+        src = SnapshotSource(PITStore(Path(snap)))
+        print(f"[离线] 用 PIT 快照 {snap}(零 akshare)。")
+    else:
+        src = _MemoizedSource(AkshareSource())
     n_days = sum(1 for d in src.trading_calendar() if start <= d <= end)
     print(f"区间 {start}~{end} 内交易日 {n_days} 个,horizon={horizon},temperature={temperature},"
           f"scorer={scorer_kind}(return 模式下期望分读作平均收益)。"
