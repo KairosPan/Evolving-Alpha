@@ -31,3 +31,29 @@ class PITStore:
         p = self._path(kind, day)
         p.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(p, index=False)
+
+    def _ohlcv_path(self, code: str) -> Path:
+        return self._root / "ohlcv" / f"{code}.parquet"
+
+    def has_ohlcv(self, code: str) -> bool:
+        return self._ohlcv_path(code).exists()
+
+    def get_ohlcv(self, code: str) -> pd.DataFrame | None:
+        p = self._ohlcv_path(code)
+        return pd.read_parquet(p) if p.exists() else None
+
+    def put_ohlcv(self, code: str, df: pd.DataFrame) -> None:
+        p = self._ohlcv_path(code)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(p, index=False)
+
+    def put_calendar(self, days: list[Date]) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"date": [d.isoformat() for d in days]}).to_parquet(
+            self._root / "calendar.parquet", index=False)
+
+    def get_calendar(self) -> list[Date] | None:
+        p = self._root / "calendar.parquet"
+        if not p.exists():
+            return None
+        return [pd.to_datetime(s).date() for s in pd.read_parquet(p)["date"]]

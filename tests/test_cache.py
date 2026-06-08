@@ -24,3 +24,22 @@ def test_has(tmp_path):
     assert not store.has("zt", date(2024, 6, 27))
     store.put("zt", date(2024, 6, 27), pd.DataFrame({"code": ["1"]}))
     assert store.has("zt", date(2024, 6, 27))
+
+
+def test_ohlcv_roundtrip_and_missing(tmp_path):
+    store = PITStore(root=tmp_path)
+    assert store.get_ohlcv("000001") is None and not store.has_ohlcv("000001")
+    df = pd.DataFrame([(date(2026, 6, 2), 10.0, 11, 9, 10.5, 100)],
+                      columns=["date", "open", "high", "low", "close", "volume"])
+    store.put_ohlcv("000001", df)
+    assert store.has_ohlcv("000001")
+    got = store.get_ohlcv("000001")
+    assert len(got) == 1 and float(got["close"].iloc[0]) == 10.5
+
+
+def test_calendar_roundtrip_and_missing(tmp_path):
+    store = PITStore(root=tmp_path)
+    assert store.get_calendar() is None
+    days = [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)]
+    store.put_calendar(days)
+    assert store.get_calendar() == days        # date 对象,顺序保持
