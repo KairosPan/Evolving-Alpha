@@ -49,3 +49,12 @@ def test_sample_run_writes_a_run(tmp_path, monkeypatch):
     assert any(m["run_id"] == "sample" for m in metas)
     rep, _ = RunStore(tmp_path).load("sample")
     assert "HCH" in rep.arms
+
+
+def test_list_skips_foreign_or_corrupt_files(tmp_path):
+    # 逐文件守卫:外来(无 meta)/截断 json 被跳过,不拖垮整列(否则看板全 500)
+    store = RunStore(tmp_path)
+    store.save("good", make_report(), {"window": "w"})
+    (tmp_path / "foreign.json").write_text('{"hello": "world"}', encoding="utf-8")
+    (tmp_path / "broken.json").write_text('{"meta": {', encoding="utf-8")
+    assert [m["run_id"] for m in store.list()] == ["good"]

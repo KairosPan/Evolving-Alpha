@@ -38,8 +38,12 @@ class RunStore:
     def list(self) -> list[dict]:
         if not self._root.exists():
             return []
-        metas = [json.loads(p.read_text(encoding="utf-8"))["meta"]
-                 for p in self._root.glob("*.json")]
+        metas = []
+        for p in self._root.glob("*.json"):
+            try:                                       # 逐文件守卫:一个外来/损坏文件不拖垮整列(否则看板全 500)
+                metas.append(json.loads(p.read_text(encoding="utf-8"))["meta"])
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
         return sorted(metas, key=lambda m: m["run_id"], reverse=True)   # 新→旧
 
     def load(self, run_id: str) -> tuple[ComparisonReport, dict]:

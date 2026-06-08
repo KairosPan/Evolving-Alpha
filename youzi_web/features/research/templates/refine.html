@@ -5,7 +5,7 @@
   {% for m in runs %}<option value="{{ m.run_id }}" {% if m.run_id == run_id %}selected{% endif %}>{{ m.window }} · {{ m.scorer }}</option>{% endfor %}
 </select>{% endif %}{% endblock %}
 {% block content %}
-{% if not report %}<div class="card">还没有运行结果。跑 <code>python scripts/sample_run.py</code> 或 <code>smoke_compare</code> 生成。</div>
+{% if not report or not report.hch_loop_report %}<div class="card">还没有运行结果。跑 <code>python scripts/sample_run.py</code> 或 <code>smoke_compare</code> 生成。</div>
 {% else %}
 {% set lr = report.hch_loop_report %}
 <div class="label">refine · {{ lr.refine_events | length }} 次</div>
