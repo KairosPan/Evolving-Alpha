@@ -1,11 +1,13 @@
 # youzi_web/data_access.py
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from youzi.harness.harness import HarnessState
 from youzi.harness.loader import load_seeds
 from youzi.harness.snapshot import SnapshotStore
+from youzi.loop.run_store import RunStore
 
 SEEDS_DIR = Path(__file__).resolve().parent.parent / "seeds"
 
@@ -28,3 +30,20 @@ def seed_harness() -> HarnessState:
 def snapshot_harness(store: SnapshotStore, version: int) -> HarnessState:
     h, _ = store.load(version)
     return h
+
+
+def _runs_dir() -> Path:
+    return Path(os.environ.get("YOUZI_RUNS_DIR",
+                               str(Path(__file__).resolve().parent.parent / "runs")))
+
+
+def list_runs() -> list[dict]:
+    return RunStore(_runs_dir()).list()
+
+
+def load_run(run_id: str):
+    """-> (ComparisonReport, meta);不存在 → (None, None)。"""
+    try:
+        return RunStore(_runs_dir()).load(run_id)
+    except FileNotFoundError:
+        return None, None

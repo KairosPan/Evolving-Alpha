@@ -18,3 +18,16 @@ def test_harness_view_computes_rates():
     v = harness_view(h)
     st = next(s for s in v["skills"] if s["skill_id"] == sk.skill_id)["stats"]
     assert st["hit_rate"] == 0.5 and st["nuke_rate"] == 0.25
+
+
+def test_list_and_load_runs(tmp_path, monkeypatch):
+    monkeypatch.setenv("YOUZI_RUNS_DIR", str(tmp_path))
+    from youzi_web.data_access import list_runs, load_run
+    from youzi.loop.run_store import RunStore
+    from tests.test_run_store import make_report
+    RunStore(tmp_path).save("sample", make_report(), {"window": "w", "scorer": "pool"})
+    runs = list_runs()
+    assert runs and runs[0]["run_id"] == "sample"
+    rep, meta = load_run("sample")
+    assert "HCH" in rep.arms and meta["window"] == "w"
+    assert load_run("nope") == (None, None)       # 不存在 → (None, None)
