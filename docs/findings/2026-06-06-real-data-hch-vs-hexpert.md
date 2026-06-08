@@ -140,3 +140,19 @@ DEEPSEEK_API_KEY=... python scripts/smoke_compare.py 20260529 20260605 1
 **已验证仍成立**:收益打分**机器本身没问题**——265 离线测试(含真实种子收益打分端到端 + 变异校验)全绿,窗口 1 也**跑完未崩**(只是数据被限流)。挡路的是数据供给,不是逻辑。
 
 **下一步候选**:① **PIT 数据治理**(预取/快照 + 离线打分)——解锁收益回测的真正前置;② 继续用**池成员制**(调用量小、能跑)做更多窗口聚合;③ 待 akshare 空闲时段小窗重试(治标)。
+
+---
+
+## 11. 1c-PIT 已完成,但建库被 akshare OHLCV 端点硬拒连挡住(2026-06-08)
+
+§10 的 PIT 数据治理已实现并入 main(Phase-1c-PIT,277 测试绿,opus 终审 0 blocking):`PITStore`(扩展 OHLCV/calendar/原子写)+ `SnapshotSource`(离线读)+ `capture_window`(节流幂等续跑)+ `capture_window.py` + smoke `YOUZI_SNAPSHOT` 离线分支。**离线链路全验证**(端到端 capture→SnapshotSource→compare 测试 + 真实 zt 池形状往返✅)。
+
+**尝试建库失败**:真实 OHLCV 探针 **0/5**——`stock_zh_a_hist`(eastmoney 端点)5 个 code 全 `RemoteDisconnected`(每个 ~8 次尝试全败),而 zt 池(另一端点)能取。即 **akshare OHLCV 端点此刻硬性拒连**(非间歇限流)→ 现在建库无意义(每个 OHLCV fetch 都失败,幂等续跑也 0% 推进)。**纯外部阻塞,非代码问题。**
+
+**地基全齐,只差端点恢复**。等 akshare OHLCV 恢复(off-peak/改日)跑:
+```
+python scripts/capture_window.py <s> <e> snap          # 建库一次(幂等可续跑)
+YOUZI_SNAPSHOT=snap DEEPSEEK_API_KEY=... python scripts/smoke_compare.py <s> <e> 2 0.0 return  # 离线跑
+```
+
+**新债务:OHLCV 多源 fallback。** capture 只依赖单一 OHLCV 端点(eastmoney `stock_zh_a_hist`),它挂则全挂。`AkshareSource.daily_ohlcv` 应做**多源 fallback**(eastmoney→sina `stock_zh_a_daily`→tencent `stock_zh_a_hist_tx`,各自列归一),抗单端点故障——纯离线小切片,不依赖 akshare 当下可用即可开发。
