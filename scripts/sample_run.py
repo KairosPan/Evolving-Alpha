@@ -24,7 +24,8 @@ def main() -> None:
         agent_llm_factory=_SeqFactory([_PICK_W, _NO_TRADE]),
         refiner_llm_factory=_SeqFactory(['{"ops": []}']),
         store_factory=_CountFactory(lambda: SnapshotStore(tempfile.mkdtemp())),
-        loop_config=LoopConfig(horizon=1))
+        # A3:evidence_min=1(样本 run 3 日窗候选少,默认 6 会让研究看板 refine 时间线空着)
+        loop_config=LoopConfig(horizon=1, evidence_min=1))
     root = Path(os.environ.get("YOUZI_RUNS_DIR", "runs"))
     RunStore(root).save("sample", rep, {
         "window": "sample(离线)", "scorer": "pool", "horizon": 1,

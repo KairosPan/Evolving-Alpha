@@ -79,7 +79,8 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     loop = InnerLoop(
         mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         MockLLMClient([_decision("A")]), MockLLMClient(_refiner_scripts()),
-        config=LoopConfig(breaker_min_samples=10_000),   # 不熔断
+        # A3:evidence_min=1 保持原意(每日 1 候选即 refine;默认 6 在 4 日窗内永不触发)
+        config=LoopConfig(breaker_min_samples=10_000, evidence_min=1),   # 不熔断
     )
     rep = loop.run()
 
@@ -148,8 +149,9 @@ def test_real_seeds_breaker_rolls_back_and_freezes(tmp_path):
     src = _nuke_src(n)
     mgr = _seeds_mgr(tmp_path)
     agent_scripts = [_decision(f"C{i}") for i in range(n)]   # 每日选当日涨停 C_i,pattern=一进二
+    # A3:evidence_min=1 保持原意(熔断前需先发生过 refine 才有 checkpoint 可回滚)
     cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
-                     floor_abs=-0.5, refine_every=1)
+                     floor_abs=-0.5, refine_every=1, evidence_min=1)
     loop = InnerLoop(mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
                      MockLLMClient(agent_scripts), MockLLMClient(['{"ops": []}']),
                      config=cfg)

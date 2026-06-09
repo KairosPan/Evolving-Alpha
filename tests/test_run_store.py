@@ -17,7 +17,8 @@ def make_report():
         agent_llm_factory=_SeqFactory([_PICK_W, _NO_TRADE]),
         refiner_llm_factory=_SeqFactory(['{"ops": []}']),
         store_factory=_CountFactory(lambda: SnapshotStore(tempfile.mkdtemp())),
-        loop_config=LoopConfig(horizon=1))
+        # A3:evidence_min=1 保持原意(夹具 run 要带 refine_events 供研究看板/往返测试用)
+        loop_config=LoopConfig(horizon=1, evidence_min=1))
 
 
 def test_save_load_roundtrip(tmp_path):

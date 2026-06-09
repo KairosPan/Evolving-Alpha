@@ -100,8 +100,9 @@ def test_refine_edits_visible_next_day_resetfree(tmp_path):
                        '{"ops": [{"tool": "retire_skill", "args": {"skill_id": "longtou"},'
                        ' "rationale": "示例退役"}]}',
                        '{"ops": []}']
+    # A3:evidence_min=1 保持原意(每日 1 候选即 refine;默认 6 在 3 日窗内永不触发)
     loop, mgr = _loop(tmp_path, src, [_decision("A")], refiner_scripts,
-                      config=LoopConfig(breaker_min_samples=10_000))  # 不熔断
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=1))  # 不熔断
     # 退役证据门(Phase-1b-3d):day1 refine 时 longtou 仅累计 n=1<默认门槛,会被拦下;
     # 本测试意在验证退役的 reset-free 可见性,故预置足够样本让其过门。
     mgr.harness.skills.get("longtou").stats.n = 5
@@ -133,8 +134,9 @@ def test_breaker_trips_rolls_back_and_freezes(tmp_path):
     n = 8
     src = _nuke_src(n)
     agent_scripts = [_decision(f"C{i}") for i in range(n)]    # 每日选当日涨停 C_i
+    # A3:evidence_min=1 保持原意(熔断前需先发生过 refine 才有 checkpoint 可回滚)
     cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
-                     floor_abs=-0.5, refine_every=1)
+                     floor_abs=-0.5, refine_every=1, evidence_min=1)
     loop, mgr = _loop(tmp_path, src, agent_scripts, ['{"ops": []}'], config=cfg)
     rep = loop.run()
     # 每个被选 code 次日跌停 → 全 nuked(-1)→ rolling 跌破 floor_abs(-0.5)→ 熔断
@@ -164,7 +166,8 @@ def test_breaker_freezes_without_checkpoint_when_no_refine(tmp_path):
 def test_loop_config_rejects_degenerate():
     from pydantic import ValidationError
     for bad in ({"horizon": 0}, {"breaker_window": 0}, {"baseline_window": 0},
-                {"breaker_min_samples": 0}, {"refine_every": 0}, {"credit_window": 0}):
+                {"breaker_min_samples": 0}, {"refine_every": 0}, {"credit_window": 0},
+                {"evidence_min": 0}):
         with pytest.raises(ValidationError):
             LoopConfig(**bad)
 
@@ -188,14 +191,88 @@ def test_inner_loop_accepts_return_scorer(tmp_path):
     assert sc.outcome == "continued" and abs(sc.score - 0.05) < 1e-9
 
 
+# ── A3:水位线非重叠证据窗 + evidence_min 触发门 + 编辑史随 _rebind 作废 ──
+
+def test_watermark_evidence_window_does_not_overlap(tmp_path):
+    # 同一证据(决策/签名里的 code)不跨 refine 重现:refine1 见 C0,refine2 只见 C1、不再见 C0
+    n = 4
+    src = _nuke_src(n)
+    agent_scripts = [_decision(f"C{i}") for i in range(n)]
+    loop, mgr = _loop(tmp_path, src, agent_scripts, ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=1))  # 不熔断
+    rep = loop.run()
+    assert len(rep.refine_events) >= 2
+    # 每次 refine 发 3 次 live 调用(p/K/M),同一 user prompt;取每次 refine 的第 1 条
+    u_refine1 = loop._refiner_llm.calls[0][1]
+    u_refine2 = loop._refiner_llm.calls[3][1]
+    assert "C0" in u_refine1                      # refine1 证据=步0(C0 被砸)
+    assert "C0" not in u_refine2                  # 水位线推进 → refine2 不再重现 C0
+    assert "C1" in u_refine2                      # refine2 证据=步1(C1)
+
+
+def test_evidence_min_gates_refine_per_candidate(tmp_path):
+    # 未达不触发:1 候选/日、evidence_min=2 → day1(1 候选)不触发;day2 累积 2 候选触发;
+    # 触发后水位线推进 → day3 仅 1 新候选,不再触发
+    days = [date(2024, 6, 26) + timedelta(days=k) for k in range(4)]
+    frames = {("zt", d): pd.DataFrame({"code": ["A"], "name": ["甲"], "boards": [2]}) for d in days}
+    src = FakeSource(frames, days)
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=2))
+    rep = loop.run()
+    assert [e.date for e in rep.refine_events] == [days[2]]    # 仅 day3(idx=2,累积 2 候选)
+    # 完全未达(evidence_min=4 > 窗内最大可累积 3 候选)→ 永不触发,refiner LLM 不被调
+    loop2, _ = _loop(tmp_path / "b", src, [_decision("A")], ['{"ops": []}'],
+                     config=LoopConfig(breaker_min_samples=10_000, evidence_min=4))
+    rep2 = loop2.run()
+    assert rep2.refine_events == []
+    assert loop2._refiner_llm.calls == []
+
+
+def test_evidence_min_counts_candidates_not_steps(tmp_path):
+    # 按候选计(非按步):单步 2 候选即满足 evidence_min=2,首个可 refine 日就触发
+    days = [date(2024, 6, 26), date(2024, 6, 27)]
+    frames = {("zt", d): pd.DataFrame({"code": ["A", "B"], "name": ["甲", "乙"],
+                                       "boards": [2, 1]}) for d in days}
+    src = FakeSource(frames, days)
+    two_picks = ('{"candidates": [{"code": "A", "pattern": "龙头接力", "confidence": 0.7},'
+                 ' {"code": "B", "pattern": "龙头接力", "confidence": 0.6}],'
+                 ' "no_trade_reason": ""}')
+    loop, mgr = _loop(tmp_path, src, [two_picks], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=2))
+    rep = loop.run()
+    assert [e.date for e in rep.refine_events] == [days[1]]    # 1 步×2 候选 ≥ 2 → 触发
+
+
+def test_watermark_advances_after_refine(tmp_path):
+    # refine 成功后水位线推进到已评分步末尾(下窗不重叠)
+    src = _continued_src()    # 3 日 → 2 个已评分步
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=1))
+    rep = loop.run()
+    assert len(rep.refine_events) == 2
+    assert loop._last_refined_idx == 2       # 2 个已评分步全被消费
+
+
+def test_rebind_clears_refiner_edit_history(tmp_path):
+    # _rebind(rollback 后)重建 Refiner → 编辑史清空(回滚后旧编辑史作废,见 inner_loop 注释)
+    from youzi.refine.refiner import RefineReport
+    src = _continued_src()
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'])
+    loop._refiner._recent_reports.append(RefineReport())
+    assert len(loop._refiner._recent_reports) == 1
+    loop._rebind()
+    assert len(loop._refiner._recent_reports) == 0
+
+
 def test_refine_skips_zero_evidence_no_trade_days(tmp_path):
     # 冰点:zt 池空、agent 空仓 → 所有已评分步 outcomes={} → 不应触发 refine(省 LLM/磁盘)
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
     frames = {("zt", d): pd.DataFrame() for d in days}
     src = FakeSource(frames, days)
     no_trade = '{"candidates": [], "no_trade_reason": "冰点空仓"}'
+    # A3:evidence_min=1 使测试非空泛——专测"零候选不算证据"路径而非 evidence_min 门本身
     loop, mgr = _loop(tmp_path, src, [no_trade], ['{"ops": []}'],
-                      config=LoopConfig(breaker_min_samples=10_000))
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=1))
     rep = loop.run()
     assert rep.trajectory.n_no_trade() == 3
     assert rep.refine_events == []                # 零证据 → 不 refine

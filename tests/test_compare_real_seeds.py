@@ -71,7 +71,8 @@ def test_four_arms_end_to_end_on_real_seeds(tmp_path):
     rep = compare_harnesses(
         harness_f, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         agent_llm_factory=agent_f, refiner_llm_factory=refiner_f,
-        store_factory=store_f, loop_config=LoopConfig())
+        # A3:evidence_min=1 保持原意(3 日窗每日 1 候选,默认 6 永不 refine → ③ 断言失真)
+        store_factory=store_f, loop_config=LoopConfig(evidence_min=1))
 
     # ① 四路齐全,各有 EvalReport
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}

@@ -21,8 +21,12 @@ from youzi.universe.universe import build_universe
 class LoopConfig(BaseModel):
     # 整数窗口/节奏一律 >=1(防退化配置:除零/空窗口;仿 WalkForwardEval horizon>=1 先例)
     horizon: int = Field(default=1, ge=1)            # 延迟打分窗口(同 WalkForwardEval)
-    refine_every: int = Field(default=1, ge=1)       # 每 N 交易日 refine 一次(默认每日)
-    credit_window: int = Field(default=10, ge=1)     # 给 refiner 的证据窗口(最近 N 个已评分步)
+    refine_every: int = Field(default=1, ge=1)       # refine 节奏上限门(与 evidence_min 取与;A3 起非唯一触发条件)
+    # 【A3:已被水位线取代,仅保留兼容】旧语义=滑动证据窗(最近 N 已评分步),会重叠重现同一签名;
+    # A3 起 refine 证据 = scored_steps[水位线:](非重叠),本字段在代码中已无消费点,
+    # 保留仅为旧 LoopConfig JSON 反序列化不破。
+    credit_window: int = Field(default=10, ge=1)
+    evidence_min: int = Field(default=6, ge=1)       # 水位线后新增**已打分候选**数(按候选计,非按步)≥ 此值才 refine
     breaker_window: int = Field(default=20, ge=1)    # 滚动 expectancy 窗口(最近 N 个已评分候选)
     baseline_window: int = Field(default=20, ge=1)   # 基线 = 前 N 个已评分候选均值
     # ⚠ 熔断阈值按**池 SCORE∈{−1,0,1}**标定;配 ReturnScorer 时 score=前向收益(~±0.1/日),
@@ -81,16 +85,24 @@ class InnerLoop:
         self._cfg = config or LoopConfig()
         self._refiner_cfg = refiner_config or RefinerConfig()
         self._scorer = scorer or PoolScorer()
+        # A3 水位线:scored_steps 的索引,refine 证据 = scored_steps[水位线:](非重叠窗);
+        # refine 成功后推进到 len(scored_steps)。熔断后永久冻结、不再 refine,故 rollback 无需重置。
+        self._last_refined_idx = 0
         self._rebind()
 
     def _rebind(self) -> None:
-        """(重)绑定 agent/refiner 到 manager 当前的 harness/tools——启动与 rollback 后调用。"""
+        """(重)绑定 agent/refiner 到 manager 当前的 harness/tools——启动与 rollback 后调用。
+
+        注意(A3):重建 Refiner 会清空其近期编辑史(_recent_reports)——可接受:
+        rollback 已把 H 还原,旧编辑史描述的编辑均已撤销,作废是正确语义。
+        """
         self._agent = LLMAgentPolicy(self._mgr.harness, self._agent_llm)
         self._refiner = Refiner(self._mgr.harness, self._refiner_llm,
                                 self._mgr.tools, self._refiner_cfg)
 
     def run(self) -> LoopReport:
         cfg = self._cfg
+        self._last_refined_idx = 0          # 防御:run() 重入时水位线归零(scored_steps 是 run 局部状态)
         engine = ReplayEngine(self._source, self._start, self._end)
         record = PoolRecord()
         days_seen: list[Date] = []
@@ -166,16 +178,22 @@ class InnerLoop:
                     frozen_from = cursor
                     breaker_events.append(BreakerEvent(date=cursor, rolling=rolling, baseline=baseline,
                                                        reason=reason, rolled_back_to=rolled))
-            # 每日 refine(未冻结 + 有新**评分证据** + 到节奏):空仓步 outcomes={} 不算证据,跳过省 LLM/磁盘
-            if not frozen and any(s.outcomes for s in newly) and (idx % cfg.refine_every == 0):
+            # refine 触发(A3 水位线非重叠窗):未冻结 AND 水位线后新增已打分候选数 ≥ evidence_min
+            # AND 到节奏(refine_every 保留作节奏上限门)。候选按 outcomes 计(非按步):
+            # 空仓步 outcomes={} 不算证据 → 零证据日天然跳过,省 LLM/磁盘(旧行为保留)。
+            fresh = scored_steps[self._last_refined_idx:]
+            n_fresh = sum(len(s.outcomes) for s in fresh)
+            if not frozen and n_fresh >= cfg.evidence_min and (idx % cfg.refine_every == 0):
                 ver = self._mgr.checkpoint(label=f"pre-refine {cursor}")
                 last_ckpt = ver
-                win = scored_steps[-cfg.credit_window:]
-                win_traj = Trajectory(steps=win, horizon=cfg.horizon)
-                credit = merge_credit_reports(per_step_credits[-cfg.credit_window:])
+                # 证据 = 水位线后全部新增(非重叠,同一签名不跨 refine 重现);
+                # scored_steps 与 per_step_credits 同步追加,同切片天然对齐。
+                win_traj = Trajectory(steps=fresh, horizon=cfg.horizon)
+                credit = merge_credit_reports(per_step_credits[self._last_refined_idx:])
                 sigs = extract_signatures(win_traj, self._mgr.harness)
                 report = self._refiner.refine(win_traj, credit, sigs)
                 refine_events.append(RefineEvent(date=cursor, checkpoint_version=ver, report=report))
+                self._last_refined_idx = len(scored_steps)   # refine 成功 → 推进水位线,下窗不重叠
             idx += 1
             if not engine.step():
                 break

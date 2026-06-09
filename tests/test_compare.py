@@ -90,7 +90,9 @@ def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, sc
     rep = compare_harnesses(
         harness_f, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         agent_llm_factory=agent_f, refiner_llm_factory=refiner_f,
-        store_factory=store_f, loop_config=cfg or LoopConfig(), scorer=scorer)
+        # A3:evidence_min=1 保持原意(3 日窗每日 ≤1 候选,默认 6 永不 refine,
+        # n_refines>=1 类断言会失真)
+        store_factory=store_f, loop_config=cfg or LoopConfig(evidence_min=1), scorer=scorer)
     return rep, agent_f, refiner_f, store_f, harness_f
 
 

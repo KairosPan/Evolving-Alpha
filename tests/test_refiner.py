@@ -360,3 +360,46 @@ def test_target_id_normalizes_numeric_id_no_crash():
     assert not ok and isinstance(res, RejectedEdit)
     assert res.target_id == "7"          # 归一为字符串,不崩
     assert "KeyError" in res.reason      # 无技能 "7" → dispatch KeyError → 干净拒绝
+
+
+# ── A3:编辑史(_recent_reports)累积/maxlen=2 滚动/渲染进下次 user prompt ──
+
+def test_refine_history_accumulates_rolls_and_renders():
+    h = _harness()
+    from youzi.harness.skill import Skill
+    for sid in ("b", "c"):
+        h.skills.write(Skill.from_seed({"skill_id": sid, "name_cn": sid, "type": "pattern",
+                                        "applicable_regime": ["主升"], "trigger": "t",
+                                        "entry": "e", "exit_stop": "x", "status": "incubating"}))
+    empty = '{"ops": []}'
+    promote_b = '{"ops": [{"tool": "promote_skill", "args": {"skill_id": "b"}, "rationale": "晋升b"}]}'
+    # retire a:n=0<5 → 被退役证据门拒(产出 rejected 供历史渲染)
+    retire_a = '{"ops": [{"tool": "retire_skill", "args": {"skill_id": "a"}, "rationale": "想退"}]}'
+    promote_c = '{"ops": [{"tool": "promote_skill", "args": {"skill_id": "c"}, "rationale": "晋升c"}]}'
+    # 3 次 refine × 各 3 次 live 调用(p/K/M):
+    #   refine1: K 晋升 b(applied);refine2: K 退役 a(rejected);refine3: K 晋升 c
+    llm = MockLLMClient([empty, promote_b, empty,
+                         empty, retire_a, empty,
+                         empty, promote_c, empty])
+    r = Refiner(h, llm, MetaTools(h), RefinerConfig(min_retire_samples=5))
+    traj, credit, sigs = _empty_evidence()
+
+    rep1 = r.refine(traj, credit, sigs)
+    assert list(r._recent_reports) == [rep1]
+    # refine1 时无历史 → 编辑史段 "(无)"
+    assert "(无)" in llm.calls[0][1].split("近期编辑史")[1]
+
+    rep2 = r.refine(traj, credit, sigs)
+    # refine2 的 user prompt 渲染了 refine1 的 applied(tool/target/rationale)
+    u2 = llm.calls[3][1]
+    assert "[第1次/applied] K/promote_skill → b: 晋升b" in u2
+    assert list(r._recent_reports) == [rep1, rep2]
+
+    rep3 = r.refine(traj, credit, sigs)
+    # refine3 的 user prompt 同时渲染 refine1 的 applied 与 refine2 的 rejected(带拒因)
+    u3 = llm.calls[6][1]
+    assert "[第1次/applied] K/promote_skill → b: 晋升b" in u3
+    assert "[第2次/rejected] K/retire_skill → a: 拒因=" in u3
+    assert "证据不足" in u3                       # 拒因原文透给 LLM(此前完全不可见)
+    # maxlen=2 滚动:rep1 被挤出,只剩最近 2 次
+    assert list(r._recent_reports) == [rep2, rep3]

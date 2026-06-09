@@ -1,6 +1,8 @@
 # youzi/refine/refiner.py
 from __future__ import annotations
 
+from collections import deque
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from youzi.eval.trajectory import Trajectory
@@ -10,7 +12,7 @@ from youzi.harness.memory_item import Lesson
 from youzi.harness.metatools import MetaTools
 from youzi.harness.skill import Skill
 from youzi.llm.client import LLMClient
-from youzi.refine.credit import CreditReport
+from youzi.refine.credit import UNATTRIBUTED, CreditReport
 from youzi.refine.ops import PASS_TOOLS, PassKind, RefineOp, parse_ops
 from youzi.refine.refiner_prompt import build_refiner_system_prompt, build_refiner_user_prompt
 from youzi.refine.signatures import FailureSignature
@@ -78,6 +80,10 @@ class Refiner:
         self._llm = llm
         self._meta = meta
         self._cfg = config or RefinerConfig()
+        # A3 编辑史:记住最近 2 次 RefineReport,渲染进 user prompt(applied 别重复提 /
+        # rejected 带拒因别原样重发)。注意:InnerLoop._rebind(rollback 后)重建 Refiner
+        # 时历史丢失——可接受:回滚已把 H 还原,旧编辑史描述的编辑均已撤销,作废是正确语义。
+        self._recent_reports: deque[RefineReport] = deque(maxlen=2)
 
     def _apply_op(self, op: RefineOp, pk: PassKind,
                   allowed: frozenset[str]) -> tuple[bool, object]:
@@ -144,13 +150,19 @@ class Refiner:
         applied: list[AppliedEdit] = []
         rejected: list[RejectedEdit] = []
         notes: list[str] = []
+        history = list(self._recent_reports)   # A3:快照既往编辑史(本次 refine 不看自己)
+        # A3 涉案技能 = 本窗信用 keys ∪ 签名 skill_id(去 None / unattributed 桶)→ K-pass 渲染全文
+        involved = set(credit.per_skill) | {s.skill_id for s in signatures if s.skill_id}
+        involved.discard(UNATTRIBUTED)
         for pk in _PASS_ORDER:
             allowed = PASS_TOOLS[pk]
             if not allowed:                                   # ΔG 占位 no-op(不发 LLM 调用)
                 notes.append(f"{pk}-pass reserved(G 子 Agent 未建,跳过)")
                 continue
-            system = build_refiner_system_prompt(self._h, pk, self._cfg.min_retire_samples)
-            user = build_refiner_user_prompt(traj, credit, signatures, self._cfg.window)
+            system = build_refiner_system_prompt(self._h, pk, self._cfg.min_retire_samples,
+                                                 involved_skill_ids=involved)
+            user = build_refiner_user_prompt(traj, credit, signatures, self._cfg.window,
+                                             recent_reports=history)
             ops = parse_ops(self._llm.complete(system, user))
             pass_count = 0
             for op in ops:
@@ -168,4 +180,6 @@ class Refiner:
                     pass_count += 1
                 else:
                     rejected.append(res)
-        return RefineReport(applied=applied, rejected=rejected, notes=notes)
+        report = RefineReport(applied=applied, rejected=rejected, notes=notes)
+        self._recent_reports.append(report)    # A3:滚入编辑史(deque maxlen=2 自动滚动)
+        return report
