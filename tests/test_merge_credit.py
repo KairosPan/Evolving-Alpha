@@ -6,9 +6,11 @@ def _rep(per, unattr=None, n_scored=0):
     return CreditReport(per_skill=per, unattributed=unattr, n_scored=n_scored)
 
 
-def _sc(sid, n, wins, losses, nukes, expectancy):
+def _sc(sid, n, wins, losses, nukes, expectancy, expectancy_raw=None):
+    # C2:expectancy 语义=advantage;expectancy_raw=原始 score 口径(默认与 expectancy 同值)
     return SkillCredit(skill_id=sid, n=n, wins=wins, losses=losses, nukes=nukes,
-                       hit_rate=wins / n, nuke_rate=nukes / n, expectancy=expectancy)
+                       hit_rate=wins / n, nuke_rate=nukes / n, expectancy=expectancy,
+                       expectancy_raw=expectancy if expectancy_raw is None else expectancy_raw)
 
 
 def test_merge_empty_is_empty():
@@ -26,6 +28,16 @@ def test_merge_accumulates_per_skill():
     assert a.hit_rate == 0.5 and a.nuke_rate == 0.5
     assert a.expectancy == 0.0          # (2*1.0 + 2*-1.0)/4
     assert m.n_scored == 4
+
+
+def test_merge_accumulates_both_expectancy_calibers():
+    # C2:advantage 与原始 score 双口径分别按 n 加权合并
+    r1 = _rep({"a": _sc("a", 2, 2, 0, 0, expectancy=0.5, expectancy_raw=1.0)}, n_scored=2)
+    r2 = _rep({"a": _sc("a", 2, 0, 2, 0, expectancy=-0.5, expectancy_raw=0.0)}, n_scored=2)
+    m = merge_credit_reports([r1, r2])
+    a = m.per_skill["a"]
+    assert a.expectancy == 0.0          # (2*0.5 + 2*-0.5)/4:超额口径
+    assert a.expectancy_raw == 0.5      # (2*1.0 + 2*0.0)/4:原始口径独立合并
 
 
 def test_merge_unattributed_and_distinct_skills():

@@ -31,10 +31,11 @@ class ArmReport(BaseModel):
 class ComparisonReport(BaseModel):
     model_config = ConfigDict(frozen=True)
     arms: dict[str, ArmReport] = Field(default_factory=dict)
-    hch_minus_hexpert_mean_score: float
+    hch_minus_hexpert_mean_score: float              # 原始分差(保留旧口径)
+    hch_minus_hexpert_mean_excess: float = 0.0       # 截面超额差(advantage 口径;旧 JSON 缺省 → 0.0)
     hch_minus_hexpert_hit_rate: float
     hch_minus_hexpert_nuke_rate: float
-    hch_beats_hexpert: bool
+    hch_beats_hexpert: bool                          # 北极星裁决:mean_excess>0(C2 起超额口径)
     hch_loop_report: LoopReport | None = None   # HCH 完整环报告(refine_events/breaker_events 明细;诊断"自进化改了啥")
 
     def __bool__(self) -> bool:
@@ -76,14 +77,16 @@ def compare_harnesses(
     hmin_nt = ArmReport(name="Hmin_notrade", report=wf.run(NoTradePolicy()))
 
     d_mean = hch_eval.mean_score - hexpert_eval.mean_score
+    d_excess = hch_eval.mean_excess - hexpert_eval.mean_excess   # 截面 demean 砍掉日间共同β
     d_hit = hch_eval.hit_rate - hexpert_eval.hit_rate
     d_nuke = hch_eval.nuke_rate - hexpert_eval.nuke_rate
     return ComparisonReport(
         arms={"HCH": hch_arm, "Hexpert": hexpert_arm,
               "Hmin_highest": hmin_hb, "Hmin_notrade": hmin_nt},
         hch_minus_hexpert_mean_score=d_mean,
+        hch_minus_hexpert_mean_excess=d_excess,
         hch_minus_hexpert_hit_rate=d_hit,
         hch_minus_hexpert_nuke_rate=d_nuke,
-        hch_beats_hexpert=d_mean > 0,
+        hch_beats_hexpert=d_excess > 0,   # C2:北极星裁决改超额口径(去市场β后才算真胜)
         hch_loop_report=lr,
     )

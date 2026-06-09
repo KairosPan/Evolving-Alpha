@@ -9,12 +9,13 @@
 {% else %}
 <div class="label">{{ meta.window }} · scorer={{ meta.scorer }}</div>
 <table class="data">
-  <thead><tr><th>路</th><th>候选</th><th>期望分</th><th>命中率</th><th>被砸率</th><th>refine</th><th>熔断</th></tr></thead>
+  <thead><tr><th>路</th><th>候选</th><th>期望分</th><th>超额均值</th><th>命中率</th><th>被砸率</th><th>refine</th><th>熔断</th></tr></thead>
   <tbody>
   {% for name in ['HCH', 'Hexpert', 'Hmin_highest', 'Hmin_notrade'] %}
     {% set arm = report.arms[name] %}
     <tr><td>{{ name }}</td><td>{{ arm.report.n_candidates }}</td>
       <td>{{ '%+.4f' | format(arm.report.mean_score) }}</td>
+      <td>{{ '%+.4f' | format(arm.report.mean_excess) }}</td>
       <td>{{ '%.3f' | format(arm.report.hit_rate) }}</td>
       <td>{{ '%.3f' | format(arm.report.nuke_rate) }}</td>
       <td>{{ arm.n_refines if arm.n_refines is not none else '—' }}</td>
@@ -22,9 +23,10 @@
   {% endfor %}
   </tbody>
 </table>
+<div class="muted" style="margin-top:6px;">口径:超额(advantage)= score − 当日涨停池基线(闭眼买全池的同日期望);>0 才胜过随机选池。旧运行无此字段时显示 0。</div>
 <div class="card" style="margin-top:14px;">
-  <b>HCH − Hexpert</b>　Δ期望分 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_score) }}　Δ命中率 {{ '%+.4f' | format(report.hch_minus_hexpert_hit_rate) }}　Δ被砸率 {{ '%+.4f' | format(report.hch_minus_hexpert_nuke_rate) }}<br>
-  verdict: {% if report.hch_beats_hexpert %}<span class="status-active">✅ HCH 胜 frozen</span>{% else %}<span class="status-retired">❌ HCH 未胜(持平/退化)</span>{% endif %}
+  <b>HCH − Hexpert</b>　Δ期望分 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_score) }}　Δ超额 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_excess) }}　Δ命中率 {{ '%+.4f' | format(report.hch_minus_hexpert_hit_rate) }}　Δ被砸率 {{ '%+.4f' | format(report.hch_minus_hexpert_nuke_rate) }}<br>
+  verdict(超额口径): {% if report.hch_beats_hexpert %}<span class="status-active">✅ HCH 胜 frozen</span>{% else %}<span class="status-retired">❌ HCH 未胜(持平/退化)</span>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

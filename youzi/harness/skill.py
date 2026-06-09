@@ -18,7 +18,8 @@ class SkillStats(BaseModel):
     nukes: int = 0           # 被砸(nuked)次数;nuke_rate = nukes/n。由 apply_credit 维护
     ewma_winrate: float | None = None
     pnl_ratio: float | None = None
-    expectancy: float | None = None
+    expectancy: float | None = None      # 语义=advantage(score−当日池基线)累计均值,去市场β;由 apply_credit Welford 维护
+    expectancy_raw: float | None = None  # 原始 score 口径累计均值(第二字段,保留旧口径可溯;同上维护)
     oracle_gap: float | None = None
 
     def record(self, win: bool, decay: float = 0.1) -> None:

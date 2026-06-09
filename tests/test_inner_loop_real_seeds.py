@@ -94,7 +94,10 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     # ② 在线信用:真实技能 relay_1to2(pattern 一进二)被引用且 continued → H 内 stats 已更新
     st = mgr.harness.skills.get(SEED_SKILL_ID).stats
     assert st.n == n - 1 and st.wins == n - 1
-    assert st.expectancy == 1.0          # 全 continued(+1)的累计均值
+    # C2 语义变更:expectancy=advantage(score−当日池基线)。单码池 {A} 基线=1.0 →
+    # 选 A=闭眼买全池,超额=0;原始口径移至 expectancy_raw(仍=全 continued 的 +1 均值)。
+    assert st.expectancy == 0.0
+    assert st.expectancy_raw == 1.0
 
     # ③ refine 每日触发(有新证据起):day1/day2/day3 各一次
     assert [e.date for e in rep.refine_events] == \

@@ -130,7 +130,8 @@ class InnerLoop:
                     assert mem is not None, f"BUG: {days_seen[j + cfg.horizon]} 未录成员"
                     outcomes = self._scorer.score_step(
                         drafts[j]["decision"], mem,
-                        days_seen[j + 1], days_seen[j + cfg.horizon], engine.guarded_source)
+                        days_seen[j + 1], days_seen[j + cfg.horizon], engine.guarded_source,
+                        decision_mem=record.get(days_seen[j]))   # 决策日(≤t)池成员 → day_baseline
                     drafts[j]["outcomes"] = outcomes
                     drafts[j]["scored"] = True
                     step_j = TrajectoryStep(**drafts[j])
@@ -143,7 +144,7 @@ class InnerLoop:
                 cr = apply_credit(Trajectory(steps=[step], horizon=cfg.horizon), self._mgr.harness)
                 per_step_credits.append(cr)
                 for sc in step.outcomes.values():
-                    scores.append(sc.score)
+                    scores.append(sc.score)   # 熔断保持**原始分**口径不动(advantage 化属熔断重设计 B2)
             # 能力地板熔断(自相对 + 绝对;只触发一次)
             if not frozen and len(scores) >= cfg.breaker_min_samples:
                 n_base = min(len(scores), cfg.baseline_window)   # 与 rolling 对称:按实有样本数算,防误配 min_samples<baseline_window 时 baseline 被低估

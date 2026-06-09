@@ -51,6 +51,38 @@ def test_sample_run_writes_a_run(tmp_path, monkeypatch):
     assert "HCH" in rep.arms
 
 
+def test_load_old_json_without_c2_fields(tmp_path):
+    """C2 旧 JSON 兼容:存量 run(无 mean_excess/advantage/day_baseline/
+    hch_minus_hexpert_mean_excess)反序列化不崩,新字段走默认/回退。"""
+    import json
+
+    _NEW_KEYS = {"mean_excess", "advantage", "day_baseline",
+                 "hch_minus_hexpert_mean_excess", "expectancy_raw"}
+
+    def _strip(obj):
+        if isinstance(obj, dict):
+            return {k: _strip(v) for k, v in obj.items() if k not in _NEW_KEYS}
+        if isinstance(obj, list):
+            return [_strip(v) for v in obj]
+        return obj
+
+    store = RunStore(tmp_path)
+    store.save("new", make_report(), {"window": "w"})
+    p = tmp_path / "old.json"
+    payload = _strip(json.loads((tmp_path / "new.json").read_text(encoding="utf-8")))
+    payload["meta"]["run_id"] = "old"
+    p.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    got, meta = store.load("old")
+    assert meta["run_id"] == "old"
+    assert got.hch_minus_hexpert_mean_excess == 0.0             # 缺省默认
+    assert got.arms["HCH"].report.mean_excess == 0.0
+    # ScoredCandidate.advantage 回退=score(基线缺失)
+    for step in got.hch_loop_report.trajectory.scored_steps():
+        for sc in step.outcomes.values():
+            assert sc.day_baseline is None and sc.advantage == sc.score
+
+
 def test_list_skips_foreign_corrupt_binary_and_dotfiles(tmp_path):
     # 逐文件守卫:外来(无 meta)/截断 json / 二进制(macOS ._AppleDouble)/ 隐藏文件 都跳过,不拖垮整列(否则看板全 500)
     store = RunStore(tmp_path)

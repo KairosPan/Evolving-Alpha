@@ -42,9 +42,15 @@ _NO_TRADE = '{"candidates": [], "no_trade_reason": "空仓"}'
 
 
 def _w_src():
-    """单码 W 每日涨停(continued);3 日。带 W 的 OHLCV(覆盖 6/27、6/28),使 ReturnScorer 可算收益。"""
+    """W 每日涨停(continued)+ 每日一只只上一天榜的 L{i}(次日掉出全部池 → faded);3 日。
+
+    C2 起池里需要输家:决策日涨停池 {W, L_i} → day_baseline=(1+0)/2=0.5,选 W 的
+    advantage=+0.5(单码池里选 W=闭眼买全池,超额恒 0,verdict 永远判不胜)。
+    带 W 的 OHLCV(覆盖 6/27、6/28),使 ReturnScorer 可算收益。
+    """
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
-    frames = {("zt", d): pd.DataFrame({"code": ["W"], "name": ["赢家"], "boards": [2]}) for d in days}
+    frames = {("zt", d): pd.DataFrame({"code": ["W", f"L{i}"], "name": ["赢家", f"输{i}"],
+                                       "boards": [2, 1]}) for i, d in enumerate(days)}
     ohlcv = {"W": pd.DataFrame([(date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
                                (date(2024, 6, 28), 10.6, 12, 10, 11.0, 200)],
                               columns=["date", "open", "high", "low", "close", "volume"])}
@@ -89,23 +95,28 @@ def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, sc
 
 
 def test_four_arms_and_verdict_true(tmp_path):
-    # HCH 选 W(continued, mean=1.0);Hexpert 空仓(mean=0.0)→ HCH 胜
+    # HCH 选 W(continued, mean=1.0);Hexpert 空仓(mean=0.0)→ HCH 胜。
+    # C2 语义变更:verdict 改基于 mean_excess(>0)。池 {W, L_i} 基线=0.5 → HCH 超额=+0.5。
     rep, *_ = _compare(tmp_path, [_PICK_W, _NO_TRADE])
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
     assert rep.arms["HCH"].report.mean_score == 1.0
+    assert rep.arms["HCH"].report.mean_excess == 0.5            # 1.0 − 池基线 0.5
     assert rep.arms["Hexpert"].report.mean_score == 0.0
-    assert rep.arms["Hmin_highest"].report.mean_score == 1.0   # HighestBoard 也追 W
+    assert rep.arms["Hexpert"].report.mean_excess == 0.0        # 空仓:无已评分候选
+    assert rep.arms["Hmin_highest"].report.mean_score == 1.0   # HighestBoard 也追 W(2板>1板)
     assert rep.arms["Hmin_notrade"].report.mean_score == 0.0
-    assert rep.hch_minus_hexpert_mean_score == 1.0
-    assert rep.hch_beats_hexpert is True
+    assert rep.hch_minus_hexpert_mean_score == 1.0              # 旧口径字段保留
+    assert rep.hch_minus_hexpert_mean_excess == 0.5             # 新:截面超额差
+    assert rep.hch_beats_hexpert is True                        # 基于超额 > 0
     assert rep.arms["HCH"].n_refines >= 1                       # W 续板有证据 → refine 触发
     assert rep.arms["HCH"].n_breaker_trips == 0
 
 
 def test_verdict_false_when_hch_worse(tmp_path):
-    # HCH 空仓(mean=0.0);Hexpert 选 W(mean=1.0)→ HCH 退化于 frozen
+    # HCH 空仓(excess=0);Hexpert 选 W(excess=+0.5)→ HCH 退化于 frozen
     rep, *_ = _compare(tmp_path, [_NO_TRADE, _PICK_W])
     assert rep.hch_minus_hexpert_mean_score == -1.0
+    assert rep.hch_minus_hexpert_mean_excess == -0.5            # C2:超额口径同向
     assert rep.hch_beats_hexpert is False
     assert rep.arms["HCH"].n_refines == 0                       # 全空仓无评分证据 → 不 refine
 
@@ -115,6 +126,7 @@ def test_same_script_delta_zero(tmp_path):
     rep, *_ = _compare(tmp_path, [_PICK_W])     # 两路都拿到 _PICK_W(SeqFactory 超出用末元素)
     assert rep.arms["HCH"].report.mean_score == rep.arms["Hexpert"].report.mean_score == 1.0
     assert rep.hch_minus_hexpert_mean_score == 0.0
+    assert rep.hch_minus_hexpert_mean_excess == 0.0             # 同脚本 → 超额差也为 0
     assert rep.hch_beats_hexpert is False
     assert rep.arms["HCH"].n_refines >= 1
 

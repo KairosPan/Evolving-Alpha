@@ -78,16 +78,18 @@ def build_refiner_user_prompt(traj: Trajectory, credit: CreditReport,
         outs = ", ".join(f"{code}:{sc.outcome}" for code, sc in st.outcomes.items()) or "—"
         out.append(f"- {st.date} 选[{picks}] → {outs}")
 
-    out.append("\n## 技能信用(本轮谁在亏):")
+    # 信用行双口径(C2):超额=advantage(score−当日池基线,>0 才是真技能);原始分=旧口径(含市场β)
+    out.append("\n## 技能信用(本轮谁在亏;超额>0 才胜过闭眼买整个涨停池):")
     if credit.per_skill:
         for sid, c in credit.per_skill.items():
-            out.append(f"- {sid}: n={c.n} 胜率={c.hit_rate:.2f} "
-                       f"nuke率={c.nuke_rate:.2f} exp={c.expectancy:+.2f}")
+            out.append(f"- {sid}: n={c.n} 胜率={c.hit_rate:.2f} nuke率={c.nuke_rate:.2f} "
+                       f"超额={c.expectancy:+.2f}(原始分={c.expectancy_raw:+.2f})")
     else:
         out.append("(无)")
     if credit.unattributed:
         u = credit.unattributed
-        out.append(f"- [未归因] n={u.n} 胜率={u.hit_rate:.2f} exp={u.expectancy:+.2f}")
+        out.append(f"- [未归因] n={u.n} 胜率={u.hit_rate:.2f} "
+                   f"超额={u.expectancy:+.2f}(原始分={u.expectancy_raw:+.2f})")
 
     out.append("\n## 失败签名(入场坑):")
     if signatures:

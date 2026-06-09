@@ -77,7 +77,8 @@ class _MemoizedSource:
 def _fmt_arm(name: str, arm) -> str:
     r = arm.report
     line = (f"  {name:<14} 决策={r.n_decisions:<3} 空仓={r.n_no_trade:<3} 候选={r.n_candidates:<3} "
-            f"命中率={r.hit_rate:+.3f} 被砸率={r.nuke_rate:.3f} 期望分={r.mean_score:+.4f}")
+            f"命中率={r.hit_rate:+.3f} 被砸率={r.nuke_rate:.3f} 期望分={r.mean_score:+.4f} "
+            f"超额={r.mean_excess:+.4f}")
     if arm.n_refines is not None:
         line += f"  [refine={arm.n_refines} 熔断={arm.n_breaker_trips} 冻结起={arm.frozen_from or '-'}]"
     return line
@@ -130,10 +131,11 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
         print(_fmt_arm(name, rep.arms[name]))
     print("\n=== HCH − Hexpert ===")
     print(f"  Δ期望分={rep.hch_minus_hexpert_mean_score:+.4f}  "
+          f"Δ超额={rep.hch_minus_hexpert_mean_excess:+.4f}  "
           f"Δ命中率={rep.hch_minus_hexpert_hit_rate:+.4f}  "
           f"Δ被砸率={rep.hch_minus_hexpert_nuke_rate:+.4f}")
     verdict = "✅ HCH 胜 frozen" if rep.hch_beats_hexpert else "❌ HCH 未胜 frozen(持平或退化)"
-    print(f"  verdict: {verdict}")
+    print(f"  verdict(超额口径 advantage=score−当日池基线): {verdict}")
 
     # HCH 自进化到底改了啥(诊断:看 refine 每次的 applied/rejected 编辑)
     lr = rep.hch_loop_report

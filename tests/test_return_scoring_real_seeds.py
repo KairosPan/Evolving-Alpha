@@ -7,7 +7,8 @@
   且带覆盖 entry/exit 日的 OHLCV → sc.score = 前向收益(非 {1,0,−1});
 - 同被选的候选 Z 也每日涨停但**无 OHLCV** → ReturnScorer 丢弃(不入 outcomes);
 - 从轨迹派生的 EvalReport:mean_score = 平均收益、hit_rate = 池 continued 率;
-- apply_credit 后真实技能 SkillStats.expectancy = 平均收益(score 走收益,非 SCORE)。
+- apply_credit 后真实技能 SkillStats.expectancy_raw = 平均收益(score 走收益,非 SCORE);
+  expectancy(C2 起=advantage)= 0,因池收益基线恰=A 自身收益。
 全离线(FakeSource + MockLLMClient,refiner 空 ops)。
 """
 from datetime import date, timedelta
@@ -107,9 +108,12 @@ def test_real_seeds_return_scoring_end_to_end(tmp_path):
     assert er.hit_rate == 1.0                                      # outcome 仍池 continued
     assert er.nuke_rate == 0.0
 
-    # ── ④ apply_credit 后真实技能 SkillStats.expectancy = 平均收益(score 走收益)──
+    # ── ④ apply_credit 后真实技能 SkillStats:expectancy_raw = 平均收益(score 走收益)──
+    # C2 语义变更:expectancy=advantage(score−当日池收益基线)。池 {A, Z} 里只有 A 有
+    # OHLCV(与"缺收益丢弃"一致)→ 基线=A 自身收益 → A 的超额=0;原始口径在 expectancy_raw。
     st = mgr.harness.skills.get(SEED_SKILL_ID).stats
     assert st.n == n - 1 and st.wins == n - 1                      # 仅 A 计入(Z 被丢弃,不归因)
-    assert st.expectancy is not None
-    assert abs(st.expectancy - _MEAN_RETURN) < 1e-9               # 收益均值,非 SCORE 均值(后者=1.0)
-    assert st.expectancy != 1.0                                    # 反证:池 SCORE 打分会给 1.0
+    assert st.expectancy is not None and abs(st.expectancy) < 1e-9  # 超额=0(基线=自身收益)
+    assert st.expectancy_raw is not None
+    assert abs(st.expectancy_raw - _MEAN_RETURN) < 1e-9            # 收益均值,非 SCORE 均值(后者=1.0)
+    assert st.expectancy_raw != 1.0                                # 反证:池 SCORE 打分会给 1.0

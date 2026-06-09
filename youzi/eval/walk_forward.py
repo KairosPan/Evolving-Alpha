@@ -68,7 +68,8 @@ class WalkForwardEval:
                     assert mem is not None, f"BUG: 交易日 {days_seen[j + self._horizon]} 未录制成员"
                     outcomes = self._scorer.score_step(
                         drafts[j]["decision"], mem,
-                        days_seen[j + 1], days_seen[j + self._horizon], engine.guarded_source)
+                        days_seen[j + 1], days_seen[j + self._horizon], engine.guarded_source,
+                        decision_mem=record.get(days_seen[j]))   # 决策日(≤t)池成员 → day_baseline
                     drafts[j]["outcomes"] = outcomes
                     drafts[j]["scored"] = True
                 else:
