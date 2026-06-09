@@ -10,6 +10,21 @@ SkillType = Literal["pattern", "feature", "failure_detector"]
 SkillStatus = Literal["active", "incubating", "dormant", "retired"]
 
 
+class GateSpec(BaseModel):
+    """机器可读触发门(E2):对个股 PIT 快照的确定性匹配条件。
+
+    强类型而非裸 dict:extra="forbid" 让 patch_skill 写入的 typo 键被 pydantic
+    当场拒掉,不被静默吞——"机器可读门"的 CI 价值靠这层校验兜住。
+    字段全可选;None=不约束该条件(全 None=匹配任意快照)。
+    仅测试种子 / Refiner 编辑填充;57 个真种子无 gate 键,零改动。
+    匹配语义见 youzi/eval/rule_policy.py:gate_matches(消费方,避免 harness→universe 依赖)。
+    """
+    model_config = ConfigDict(extra="forbid")
+    min_boards: int | None = None        # 连板数下限(含);snapshot.boards=None 视为不匹配
+    max_boards: int | None = None        # 连板数上限(含);snapshot.boards=None 视为不匹配
+    status_in: list[str] | None = None   # 允许的池状态(StockStatus 值:limit_up/blowup/limit_down)
+
+
 class SkillStats(BaseModel):
     """技能滚动绩效(可变, 运行期更新)。EWMA 胜率为 time-decay 雏形,后续接 regime 双衰减。"""
     n: int = 0
@@ -53,6 +68,9 @@ class Skill(BaseModel):
     status: SkillStatus = "incubating"
     notes: str = ""
     stats: SkillStats = Field(default_factory=SkillStats)
+    # E2 机器可读触发门:默认 None(真种子零标注);不入 registry._PATCH_FORBIDDEN,
+    # Refiner 可经 patch_skill 编辑(dict 经 validate_assignment 强转 GateSpec)。
+    gate: GateSpec | None = None
 
     @classmethod
     def from_seed(cls, d: dict) -> "Skill":

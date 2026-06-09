@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from datetime import date as Date
+from typing import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from youzi.agent.agent import LLMAgentPolicy
+from youzi.eval.decision import DecisionPolicy
 from youzi.eval.oracle import PoolRecord
 from youzi.eval.scorer import PoolScorer
 from youzi.eval.trajectory import EntrySnap, Trajectory, TrajectoryStep
+from youzi.harness.harness import HarnessState
 from youzi.harness.manager import HarnessManager
 from youzi.llm.client import LLMClient
 from youzi.refine.credit import apply_credit, merge_credit_reports
@@ -75,7 +78,8 @@ class InnerLoop:
                  agent_llm: LLMClient, refiner_llm: LLMClient,
                  config: LoopConfig | None = None,
                  refiner_config: RefinerConfig | None = None,
-                 scorer=None) -> None:
+                 scorer=None,
+                 agent_factory: Callable[[HarnessState], DecisionPolicy] | None = None) -> None:
         self._mgr = manager
         self._source = source
         self._start = start
@@ -85,6 +89,10 @@ class InnerLoop:
         self._cfg = config or LoopConfig()
         self._refiner_cfg = refiner_config or RefinerConfig()
         self._scorer = scorer or PoolScorer()
+        # E2 决策层注入:None=现行 LLMAgentPolicy;给 factory(如 HarnessRulePolicy)
+        # 则零 LLM 规则决策。必须是 factory 而非实例:rollback_to 替换 harness 对象,
+        # 固定实例会静默读废弃 H(manager.rollback_to docstring 明确警告)→ _rebind 重建。
+        self._agent_factory = agent_factory
         # A3 水位线:scored_steps 的索引,refine 证据 = scored_steps[水位线:](非重叠窗);
         # refine 成功后推进到 len(scored_steps)。熔断后永久冻结、不再 refine,故 rollback 无需重置。
         self._last_refined_idx = 0
@@ -95,8 +103,13 @@ class InnerLoop:
 
         注意(A3):重建 Refiner 会清空其近期编辑史(_recent_reports)——可接受:
         rollback 已把 H 还原,旧编辑史描述的编辑均已撤销,作废是正确语义。
+        E2:agent 经 factory 重建(传 manager **当前** harness),保证 rollback 后
+        决策层读的是还原态 H 而非废弃对象;默认 None 走现行 LLMAgentPolicy。
         """
-        self._agent = LLMAgentPolicy(self._mgr.harness, self._agent_llm)
+        if self._agent_factory is not None:
+            self._agent = self._agent_factory(self._mgr.harness)
+        else:
+            self._agent = LLMAgentPolicy(self._mgr.harness, self._agent_llm)
         self._refiner = Refiner(self._mgr.harness, self._refiner_llm,
                                 self._mgr.tools, self._refiner_cfg)
 
