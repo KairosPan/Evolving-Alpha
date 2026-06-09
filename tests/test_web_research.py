@@ -37,6 +37,25 @@ def test_compare_view(tmp_path, monkeypatch):
     assert "样本不足" in r.text
     assert "配对日 2" in r.text
     assert "95% CI" in r.text and "p=" in r.text
+    # C4:普通(非消融)run 不渲染 Hcredit 行/消融归因卡
+    assert "Hcredit" not in r.text
+    assert "消融归因" not in r.text
+
+
+def test_compare_view_renders_hcredit_when_ablated(tmp_path, monkeypatch):
+    # C4:消融 run → 臂表多 Hcredit 行 + 消融归因卡(两通道 verdict)
+    monkeypatch.setenv("YOUZI_RUNS_DIR", str(tmp_path))
+    from youzi.loop.run_store import RunStore
+    from tests.test_run_store import make_report
+    RunStore(tmp_path).save("abl", make_report(ablate=True), {"window": "w", "scorer": "pool"})
+    r = TestClient(create_app()).get("/research/compare")
+    assert r.status_code == 200
+    assert "Hcredit" in r.text
+    assert "消融归因" in r.text
+    assert "编辑通道 HCH−Hcredit" in r.text
+    assert "战绩回注通道 Hcredit−Hexpert" in r.text
+    # 夹具窗无熔断 → 不渲染熔断不对称警示
+    assert "熔断不对称" not in r.text and "本窗有熔断" not in r.text
 
 
 def test_refine_and_trajectory_views(tmp_path, monkeypatch):

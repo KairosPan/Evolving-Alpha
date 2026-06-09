@@ -81,7 +81,8 @@ class _CountFactory:
         return self._fn()
 
 
-def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, scorer=None):
+def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, scorer=None,
+             ablate=False):
     src = _w_src()
     agent_f = _SeqFactory(agent_scripts)
     refiner_f = _SeqFactory([refiner_script])
@@ -92,7 +93,8 @@ def _compare(tmp_path, agent_scripts, refiner_script='{"ops": []}', cfg=None, sc
         agent_llm_factory=agent_f, refiner_llm_factory=refiner_f,
         # A3:evidence_min=1 保持原意(3 日窗每日 ≤1 候选,默认 6 永不 refine,
         # n_refines>=1 类断言会失真)
-        store_factory=store_f, loop_config=cfg or LoopConfig(evidence_min=1), scorer=scorer)
+        store_factory=store_f, loop_config=cfg or LoopConfig(evidence_min=1), scorer=scorer,
+        ablate=ablate)   # C4:agent 脚本对位 factory 调用顺序 HCH→Hcredit→Hexpert
     return rep, agent_f, refiner_f, store_f, harness_f
 
 
@@ -154,6 +156,40 @@ def test_compare_accepts_scorer(tmp_path):
     rep, *_ = _compare(tmp_path, [_PICK_W], scorer=ReturnScorer())
     # 四路齐全;HCH 的 EvalReport 存在(收益打分)
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
+
+
+# ── C4:Hcredit 消融臂(编辑通道 vs 战绩回注通道拆开归因)──
+
+def test_ablate_adds_hcredit_arm_and_two_verdicts(tmp_path):
+    # 脚本对位 factory 调用顺序 HCH→Hcredit→Hexpert:HCH 选 W、Hcredit 选 W、Hexpert 空仓。
+    rep, agent_f, refiner_f, store_f, harness_f = _compare(
+        tmp_path, [_PICK_W, _PICK_W, _NO_TRADE], ablate=True)
+    assert set(rep.arms) == {"HCH", "Hcredit", "Hexpert", "Hmin_highest", "Hmin_notrade"}
+    # Hcredit:门控挡死结构编辑(refine=0、零编辑),但臂报告齐全(照 HCH 做法)
+    assert rep.arms["Hcredit"].n_refines == 0
+    assert rep.arms["Hcredit"].n_breaker_trips == 0
+    assert rep.hcredit_loop_report is not None
+    assert rep.hcredit_loop_report.n_edits == 0
+    assert rep.arms["Hcredit"].report.mean_excess == 0.5     # 选 W:1.0 − 池基线 0.5
+    # 两组消融 verdict(复用 C1 统计裁决层):
+    # 编辑通道 HCH−Hcredit 同脚本 → 日均差 0;战绩通道 Hcredit−Hexpert → +0.5
+    sv_edit, sv_credit = rep.hch_minus_hcredit_verdict, rep.hcredit_minus_hexpert_verdict
+    assert sv_edit is not None and sv_credit is not None
+    assert sv_edit.n_days == sv_credit.n_days == 2           # 3 日窗 horizon=1 → 2 已评分日
+    assert sv_edit.mean_diff == pytest.approx(0.0)
+    assert sv_credit.mean_diff == pytest.approx(0.5)
+    # 隔离:Hcredit 独立 fresh H + 独立 agent client;refiner client 仅满足构造、永不被调
+    assert harness_f.calls == 3 and agent_f.calls == 3
+    assert refiner_f.calls == 2 and store_f.calls == 2
+
+
+def test_ablate_false_default_no_hcredit_zero_regression(tmp_path):
+    # 默认 ablate=False:四臂照旧,C4 新字段全 None(零回归)
+    rep, *_ = _compare(tmp_path, [_PICK_W, _NO_TRADE])
+    assert "Hcredit" not in rep.arms
+    assert rep.hch_minus_hcredit_verdict is None
+    assert rep.hcredit_minus_hexpert_verdict is None
+    assert rep.hcredit_loop_report is None
 
 
 def test_stat_verdict_wired_end_to_end(tmp_path):

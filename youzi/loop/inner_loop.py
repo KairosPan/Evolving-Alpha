@@ -37,6 +37,10 @@ class LoopConfig(BaseModel):
     floor_abs: float = Field(default=-0.2, ge=-1.0, le=1.0)   # 绝对地板:rolling < floor_abs → 熔断(池 SCORE 标定)
     floor_rel_margin: float = Field(default=0.15, ge=0.0)     # 相对地板:rolling < baseline - margin → 熔断(同上)
     breaker_min_samples: int = Field(default=40, ge=1)        # 已评分候选数 >= 此值才可能熔断
+    # C4 消融开关:False = Hcredit 臂("只有战绩回注、无结构编辑")。只挡 refine 块
+    # (含其中的 checkpoint);apply_credit 在线信用与熔断照常。注意:无 refine →
+    # last_ckpt 恒为 None → 熔断走"只冻结不回滚"分支(run() 已有 last_ckpt=None 路径)。
+    enable_refine: bool = True
 
 
 class RefineEvent(BaseModel):
@@ -191,12 +195,13 @@ class InnerLoop:
                     frozen_from = cursor
                     breaker_events.append(BreakerEvent(date=cursor, rolling=rolling, baseline=baseline,
                                                        reason=reason, rolled_back_to=rolled))
-            # refine 触发(A3 水位线非重叠窗):未冻结 AND 水位线后新增已打分候选数 ≥ evidence_min
+            # refine 触发(A3 水位线非重叠窗):enable_refine(C4 消融门,False=Hcredit 臂)
+            # AND 未冻结 AND 水位线后新增已打分候选数 ≥ evidence_min
             # AND 到节奏(refine_every 保留作节奏上限门)。候选按 outcomes 计(非按步):
             # 空仓步 outcomes={} 不算证据 → 零证据日天然跳过,省 LLM/磁盘(旧行为保留)。
             fresh = scored_steps[self._last_refined_idx:]
             n_fresh = sum(len(s.outcomes) for s in fresh)
-            if not frozen and n_fresh >= cfg.evidence_min and (idx % cfg.refine_every == 0):
+            if cfg.enable_refine and not frozen and n_fresh >= cfg.evidence_min and (idx % cfg.refine_every == 0):
                 ver = self._mgr.checkpoint(label=f"pre-refine {cursor}")
                 last_ckpt = ver
                 # 证据 = 水位线后全部新增(非重叠,同一签名不跨 refine 重现);

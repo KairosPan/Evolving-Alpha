@@ -1,7 +1,11 @@
 # scripts/smoke_compare.py
 """手动冒烟:真实数据三方度量对比 HCH(自精炼内环) vs Hexpert(冻结种子 H) vs Hmin(裸基线)。
 
-Run: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py 20240601 20240607 [horizon]
+Run: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py 20240601 20240607 [horizon] [--ablate]
+
+--ablate(C4):多跑第五臂 Hcredit(enable_refine=False:只回注战绩、无结构编辑),
+把 HCH−Hexpert 合效应拆成编辑通道(HCH−Hcredit)+ stats 通道(Hcredit−Hexpert)。
+成本 +N 次 agent 调用("LLM 缓存免费重放"依赖未建缓存,youzi/llm 现无,见 C4 spec)。
 
 需要:openai 已装、网络、akshare 可拉数、seeds/ 在位、DEEPSEEK_API_KEY。
 先跑 scripts/smoke_akshare.py 核真实列名、scripts/smoke_deepseek_agent.py 验单日 agent,再跑本脚本。
@@ -85,7 +89,7 @@ def _fmt_arm(name: str, arm) -> str:
 
 
 def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.3,
-         scorer_kind: str = "pool") -> None:
+         scorer_kind: str = "pool", ablate: bool = False) -> None:
     if not os.environ.get("DEEPSEEK_API_KEY"):
         print("缺少 DEEPSEEK_API_KEY(export 或 inline 传入)。"); sys.exit(1)
     start = datetime.strptime(start_ymd, "%Y%m%d").date()
@@ -105,10 +109,11 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
     else:
         src = _MemoizedSource(AkshareSource())
     n_days = sum(1 for d in src.trading_calendar() if start <= d <= end)
+    extra = f" + Hcredit({n_days} agent,C4 消融)" if ablate else ""
     print(f"区间 {start}~{end} 内交易日 {n_days} 个,horizon={horizon},temperature={temperature},"
-          f"scorer={scorer_kind}(return 模式下期望分读作平均收益)。"
+          f"scorer={scorer_kind}(return 模式下期望分读作平均收益),ablate={ablate}。"
           f"\n预计 DeepSeek 调用 ≈ HCH({n_days} agent + ~{max(0, n_days - horizon) * 3} refiner) "
-          f"+ Hexpert({n_days} agent)。开始(慢且花钱)…\n")
+          f"+ Hexpert({n_days} agent){extra}。开始(慢且花钱)…\n")
 
     rep = compare_harnesses(
         lambda: load_seeds(seeds), src, start, end,
@@ -117,18 +122,21 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
         store_factory=lambda: SnapshotStore(Path(tmp)),
         loop_config=LoopConfig(horizon=horizon),
         scorer=scorer,
+        ablate=ablate,
     )
 
     from youzi.loop.run_store import RunStore
     run_id = f"{start_ymd}_{end_ymd}_{scorer_kind}_{datetime.now().strftime('%H%M%S')}"
     RunStore(Path(os.environ.get("YOUZI_RUNS_DIR", "runs"))).save(run_id, rep, {
         "window": f"{start}~{end}", "scorer": scorer_kind, "horizon": horizon,
-        "temperature": temperature, "created": datetime.now().isoformat(timespec="seconds")})
+        "temperature": temperature, "ablate": ablate,
+        "created": datetime.now().isoformat(timespec="seconds")})
     print(f"[run-store] 已存 run: {run_id}")
 
     print("=== 三方度量对比(同窗同 oracle)===")
-    for name in ("HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"):
-        print(_fmt_arm(name, rep.arms[name]))
+    for name in ("HCH", "Hcredit", "Hexpert", "Hmin_highest", "Hmin_notrade"):
+        if name in rep.arms:                       # Hcredit 仅 --ablate 时存在
+            print(_fmt_arm(name, rep.arms[name]))
     print("\n=== HCH − Hexpert ===")
     print(f"  Δ期望分={rep.hch_minus_hexpert_mean_score:+.4f}  "
           f"Δ超额={rep.hch_minus_hexpert_mean_excess:+.4f}  "
@@ -147,6 +155,25 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
         print(f"  stat_verdict(C1): {label}  配对日={sv.n_days}  "
               f"日均差={sv.mean_diff:+.4f}  {ci}  {p}  {m}  "
               f"(seed={sv.seed} block={sv.block_len} B={sv.n_boot})")
+
+    # C4 消融归因:把 HCH−Hexpert 合效应拆成编辑通道与战绩回注通道(仅 --ablate 时有)
+    if rep.hch_minus_hcredit_verdict is not None:
+        print("\n=== C4 消融归因(Hcredit=只回注战绩、无结构编辑)===")
+        labels = {"win": "✅ 显著为正", "loss": "❌ 显著为负",
+                  "flat": "≈ 持平(无法区分)", "insufficient": "⚠ 样本不足"}
+        for tag, asv in (("编辑通道   HCH−Hcredit    ", rep.hch_minus_hcredit_verdict),
+                         ("战绩通道   Hcredit−Hexpert", rep.hcredit_minus_hexpert_verdict)):
+            if asv is None:
+                continue
+            ci2 = (f"CI95=[{asv.ci_low:+.4f},{asv.ci_high:+.4f}]"
+                   if asv.ci_low is not None else "CI95=—")
+            print(f"  {tag} {labels[asv.verdict]}  配对日={asv.n_days}  "
+                  f"日均差={asv.mean_diff:+.4f}  {ci2}")
+        trips_hch = rep.arms["HCH"].n_breaker_trips or 0
+        trips_hcr = (rep.arms["Hcredit"].n_breaker_trips or 0) if "Hcredit" in rep.arms else 0
+        if trips_hch or trips_hcr:   # 熔断不对称:HCH rollback 连 stats 回滚,Hcredit 不回滚
+            print(f"  ⚠ 熔断不对称(HCH={trips_hch}/Hcredit={trips_hcr}):HCH rollback 连战绩回滚"
+                  f"而 Hcredit 无 checkpoint 只冻结——编辑通道归因失真,慎读。")
 
     # HCH 自进化到底改了啥(诊断:看 refine 每次的 applied/rejected 编辑)
     lr = rep.hch_loop_report
@@ -170,11 +197,15 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("用法: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py <start_ymd> <end_ymd> [horizon] [temperature] [scorer:pool|return]")
-        print("例:  DEEPSEEK_API_KEY=sk-... python scripts/smoke_compare.py 20240601 20240607 2 0.0 return")
+    # C4:--ablate 旗标可混在任意位置(续用位置参数约定,最小侵入,不引 argparse)
+    args = [a for a in sys.argv[1:] if a != "--ablate"]
+    ablate_flag = len(args) != len(sys.argv) - 1
+    if len(args) < 2:
+        print("用法: DEEPSEEK_API_KEY=... python scripts/smoke_compare.py <start_ymd> <end_ymd> [horizon] [temperature] [scorer:pool|return] [--ablate]")
+        print("例:  DEEPSEEK_API_KEY=sk-... python scripts/smoke_compare.py 20240601 20240607 2 0.0 return --ablate")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2],
-         int(sys.argv[3]) if len(sys.argv) > 3 else 1,
-         float(sys.argv[4]) if len(sys.argv) > 4 else 0.3,
-         sys.argv[5] if len(sys.argv) > 5 else "pool")
+    main(args[0], args[1],
+         int(args[2]) if len(args) > 2 else 1,
+         float(args[3]) if len(args) > 3 else 0.3,
+         args[4] if len(args) > 4 else "pool",
+         ablate=ablate_flag)

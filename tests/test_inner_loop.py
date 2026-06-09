@@ -264,6 +264,38 @@ def test_rebind_clears_refiner_edit_history(tmp_path):
     assert len(loop._refiner._recent_reports) == 0
 
 
+# ── C4:enable_refine 消融门(Hcredit 臂 = 只回注战绩、无结构编辑)──
+
+def test_enable_refine_false_blocks_refine_keeps_credit(tmp_path):
+    # 门控只挡 refine 块:refiner LLM 永不被调、零编辑;apply_credit 在线信用照常写 stats
+    src = _continued_src()
+    loop, mgr = _loop(tmp_path, src, [_decision("A")], ['{"ops": []}'],
+                      config=LoopConfig(breaker_min_samples=10_000, evidence_min=1,
+                                        enable_refine=False))
+    rep = loop.run()
+    assert rep.refine_events == []                # 同条件 enable_refine=True 时每日触发(对照上方测试)
+    assert loop._refiner_llm.calls == []          # refiner LLM 从未被调
+    assert rep.n_edits == 0                       # 无结构编辑(EditLog 为空)
+    st = mgr.harness.skills.get("longtou").stats
+    assert st.n == 2 and st.wins == 2             # 战绩回注照常:2 个已打分决策都归因 longtou
+
+
+def test_enable_refine_false_breaker_freezes_without_rollback(tmp_path):
+    # enable_refine=False → 无 checkpoint(checkpoint 在 refine 块内)→ 熔断走
+    # last_ckpt=None 分支:只冻结不回滚,路径不崩(C4 revision 注意事项)
+    n = 6
+    src = _nuke_src(n)
+    agent_scripts = [_decision(f"C{i}") for i in range(n)]
+    cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
+                     floor_abs=-0.5, evidence_min=1, enable_refine=False)
+    loop, mgr = _loop(tmp_path, src, agent_scripts, ['{"ops": []}'], config=cfg)
+    rep = loop.run()
+    assert len(rep.breaker_events) == 1
+    assert rep.breaker_events[0].rolled_back_to is None     # 无 checkpoint → 只冻结
+    assert rep.frozen_from == rep.breaker_events[0].date
+    assert rep.refine_events == []                          # 冻结前后均无 refine
+
+
 def test_refine_skips_zero_evidence_no_trade_days(tmp_path):
     # 冰点:zt 池空、agent 空仓 → 所有已评分步 outcomes={} → 不应触发 refine(省 LLM/磁盘)
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]

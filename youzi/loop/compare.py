@@ -39,6 +39,16 @@ class ComparisonReport(BaseModel):
     hch_beats_hexpert: bool                          # 北极星裁决:mean_excess>0(C2 起超额口径;旧 bool 保留)
     stat_verdict: StatVerdict | None = None     # C1 统计裁决:日级配对差→CI/p/MDE 四值 verdict(旧 JSON 缺省 → None)
     hch_loop_report: LoopReport | None = None   # HCH 完整环报告(refine_events/breaker_events 明细;诊断"自进化改了啥")
+    # ── C4 消融(ablate=True 才填;旧 JSON / 默认四臂缺省 → None)──
+    # Hcredit = enable_refine=False 的内环:只有 apply_credit 战绩回注、无 Refiner 结构编辑。
+    # 两组配对日差把 HCH−Hexpert 合效应拆成:编辑通道(HCH−Hcredit)+ stats 通道(Hcredit−Hexpert)。
+    # ⚠ 解读注意:长窗熔断时 HCH rollback_to 连 skill.stats 一起回滚,而 Hcredit 无 refine
+    #   无 checkpoint、熔断只冻结不回滚——两臂 stats 历史不再对称。解读 hch_minus_hcredit
+    #   前先核对 arms["HCH"].n_breaker_trips / arms["Hcredit"].n_breaker_trips(>0 时归因失真);
+    #   短窗(breaker_min_samples=40 默认)不受影响。
+    hch_minus_hcredit_verdict: StatVerdict | None = None       # 编辑通道净效应(同窗日级配对)
+    hcredit_minus_hexpert_verdict: StatVerdict | None = None   # 战绩回注通道净效应(同上)
+    hcredit_loop_report: LoopReport | None = None  # Hcredit 完整环报告(照 HCH 做法;refine_events 应为空)
 
     def __bool__(self) -> bool:
         return True
@@ -53,9 +63,15 @@ def compare_harnesses(
     loop_config: LoopConfig | None = None,
     refiner_config: RefinerConfig | None = None,
     scorer=None,
+    ablate: bool = False,
 ) -> ComparisonReport:
     """四路同窗同 oracle 对比:HCH(自精炼内环)vs Hexpert(冻结种子 H + agent,无 Refiner)
-    vs Hmin(HighestBoard / NoTrade)。每路独立 fresh 种子 H + 独立 LLM client(防交叉污染)。"""
+    vs Hmin(HighestBoard / NoTrade)。每路独立 fresh 种子 H + 独立 LLM client(防交叉污染)。
+
+    C4:ablate=True 时多跑第五臂 Hcredit(enable_refine=False 的内环:apply_credit
+    在线战绩回注照常、无 Refiner 结构编辑),并产出两组配对日差裁决,把 HCH−Hexpert
+    合效应拆成编辑通道(HCH−Hcredit)与 stats 通道(Hcredit−Hexpert)。
+    factory 调用顺序:HCH → Hcredit(仅 ablate)→ Hexpert(测试脚本按此对位)。"""
     cfg = loop_config or LoopConfig()
 
     # HCH:自精炼内环
@@ -68,6 +84,23 @@ def compare_harnesses(
                         n_refines=len(lr.refine_events),
                         n_breaker_trips=len(lr.breaker_events),
                         frozen_from=lr.frozen_from)
+
+    # C4 Hcredit:消融臂(只有战绩回注、无结构编辑)。独立 fresh 种子 H + 独立 LLM
+    # client(经现有 factory,防交叉污染);refiner client 仅满足构造签名,enable_refine=False
+    # 下永不被调。无 refine → 无 checkpoint → 共享 store 目录也零写入、熔断只冻结不回滚。
+    hcredit_lr: LoopReport | None = None
+    hcredit_arm: ArmReport | None = None
+    if ablate:
+        mgr_c = HarnessManager(harness_factory(), store_factory())
+        cfg_c = cfg.model_copy(update={"enable_refine": False})
+        loop_c = InnerLoop(mgr_c, source, start, end, agent_llm_factory(),
+                           refiner_llm_factory(), cfg_c, refiner_config, scorer=scorer)
+        hcredit_lr = loop_c.run()
+        hcredit_arm = ArmReport(name="Hcredit",
+                                report=report_from_trajectory(hcredit_lr.trajectory),
+                                n_refines=len(hcredit_lr.refine_events),   # 恒 0(门控挡死)
+                                n_breaker_trips=len(hcredit_lr.breaker_events),
+                                frozen_from=hcredit_lr.frozen_from)
 
     # Hexpert:冻结种子 H + agent(无 Refiner → H 全程不变)
     # C1:走 walk()+report_from_trajectory(与 run() 等价,有等价性测试守着),
@@ -88,9 +121,20 @@ def compare_harnesses(
     # C1 统计裁决:两臂日级等权 advantage 序列 → 按日配对差 → bootstrap CI/置换 p/MDE
     diffs = paired_daily_diff(daily_series(lr.trajectory), daily_series(hexpert_traj))
     stat = verdict(diffs)
+
+    arms = {"HCH": hch_arm, "Hexpert": hexpert_arm,
+            "Hmin_highest": hmin_hb, "Hmin_notrade": hmin_nt}
+    # C4 消融裁决:复用 C1 统计裁决层(daily_series/paired_daily_diff/verdict),
+    # 编辑通道 = HCH−Hcredit,stats 通道 = Hcredit−Hexpert(同窗同日历配对)。
+    hch_vs_hcredit: StatVerdict | None = None
+    hcredit_vs_hexpert: StatVerdict | None = None
+    if hcredit_arm is not None and hcredit_lr is not None:
+        arms["Hcredit"] = hcredit_arm
+        ds_hcredit = daily_series(hcredit_lr.trajectory)
+        hch_vs_hcredit = verdict(paired_daily_diff(daily_series(lr.trajectory), ds_hcredit))
+        hcredit_vs_hexpert = verdict(paired_daily_diff(ds_hcredit, daily_series(hexpert_traj)))
     return ComparisonReport(
-        arms={"HCH": hch_arm, "Hexpert": hexpert_arm,
-              "Hmin_highest": hmin_hb, "Hmin_notrade": hmin_nt},
+        arms=arms,
         hch_minus_hexpert_mean_score=d_mean,
         hch_minus_hexpert_mean_excess=d_excess,
         hch_minus_hexpert_hit_rate=d_hit,
@@ -98,4 +142,7 @@ def compare_harnesses(
         hch_beats_hexpert=d_excess > 0,   # C2:北极星裁决改超额口径(去市场β后才算真胜)
         stat_verdict=stat,                # C1:带 CI/p/MDE 的可证伪裁决(旧 bool 保留向后兼容)
         hch_loop_report=lr,
+        hch_minus_hcredit_verdict=hch_vs_hcredit,           # C4:编辑通道净效应(None=未消融)
+        hcredit_minus_hexpert_verdict=hcredit_vs_hexpert,   # C4:战绩回注通道净效应
+        hcredit_loop_report=hcredit_lr,
     )

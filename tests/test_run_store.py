@@ -10,15 +10,17 @@ from tests.test_compare import _w_src, _SeqFactory, _CountFactory, _PICK_W, _NO_
 from tests.test_inner_loop import _seed_h
 
 
-def make_report():
+def make_report(ablate=False):
     src = _w_src()
+    # C4:ablate 时三脚本对位 factory 顺序 HCH→Hcredit→Hexpert(HCH/Hcredit 选 W,Hexpert 空仓)
+    scripts = [_PICK_W, _PICK_W, _NO_TRADE] if ablate else [_PICK_W, _NO_TRADE]
     return compare_harnesses(
         _CountFactory(_seed_h), src, src.trading_calendar()[0], src.trading_calendar()[-1],
-        agent_llm_factory=_SeqFactory([_PICK_W, _NO_TRADE]),
+        agent_llm_factory=_SeqFactory(scripts),
         refiner_llm_factory=_SeqFactory(['{"ops": []}']),
         store_factory=_CountFactory(lambda: SnapshotStore(tempfile.mkdtemp())),
         # A3:evidence_min=1 保持原意(夹具 run 要带 refine_events 供研究看板/往返测试用)
-        loop_config=LoopConfig(horizon=1, evidence_min=1))
+        loop_config=LoopConfig(horizon=1, evidence_min=1), ablate=ablate)
 
 
 def test_save_load_roundtrip(tmp_path):
@@ -31,6 +33,19 @@ def test_save_load_roundtrip(tmp_path):
     assert len(got.hch_loop_report.refine_events) == len(rep.hch_loop_report.refine_events)
     assert got.stat_verdict == rep.stat_verdict      # C1:统计裁决随 run 持久化往返不丢
     assert meta["run_id"] == "r1" and meta["window"] == "w"
+
+
+def test_save_load_roundtrip_ablate(tmp_path):
+    # C4:消融 run(五臂 + 两组 verdict + hcredit_loop_report)持久化往返不丢
+    store = RunStore(tmp_path)
+    rep = make_report(ablate=True)
+    store.save("abl", rep, {"window": "w", "scorer": "pool"})
+    got, _ = store.load("abl")
+    assert "Hcredit" in got.arms and got.arms["Hcredit"].n_refines == 0
+    assert got.hch_minus_hcredit_verdict == rep.hch_minus_hcredit_verdict
+    assert got.hcredit_minus_hexpert_verdict == rep.hcredit_minus_hexpert_verdict
+    assert got.hcredit_loop_report is not None
+    assert got.hcredit_loop_report.n_edits == 0
 
 
 def test_list_newest_first_and_atomic(tmp_path):
@@ -54,13 +69,15 @@ def test_sample_run_writes_a_run(tmp_path, monkeypatch):
 
 
 def test_load_old_json_without_c2_fields(tmp_path):
-    """C2/C1 旧 JSON 兼容:存量 run(无 mean_excess/advantage/day_baseline/
-    hch_minus_hexpert_mean_excess/stat_verdict)反序列化不崩,新字段走默认/回退。"""
+    """C2/C1/C4 旧 JSON 兼容:存量 run(无 mean_excess/advantage/day_baseline/
+    hch_minus_hexpert_mean_excess/stat_verdict/C4 消融字段)反序列化不崩,新字段走默认/回退。"""
     import json
 
     _NEW_KEYS = {"mean_excess", "advantage", "day_baseline",
                  "hch_minus_hexpert_mean_excess", "expectancy_raw",
-                 "stat_verdict"}                     # C1:旧 run 无统计裁决 → None
+                 "stat_verdict",                     # C1:旧 run 无统计裁决 → None
+                 "hch_minus_hcredit_verdict", "hcredit_minus_hexpert_verdict",
+                 "hcredit_loop_report"}              # C4:旧 run 无消融臂 → None
 
     def _strip(obj):
         if isinstance(obj, dict):
@@ -81,6 +98,9 @@ def test_load_old_json_without_c2_fields(tmp_path):
     assert got.hch_minus_hexpert_mean_excess == 0.0             # 缺省默认
     assert got.arms["HCH"].report.mean_excess == 0.0
     assert got.stat_verdict is None                             # C1 缺省:旧 run 无统计裁决
+    assert got.hch_minus_hcredit_verdict is None                # C4 缺省:旧 run 无消融臂
+    assert got.hcredit_minus_hexpert_verdict is None
+    assert got.hcredit_loop_report is None
     # ScoredCandidate.advantage 回退=score(基线缺失)
     for step in got.hch_loop_report.trajectory.scored_steps():
         for sc in step.outcomes.values():
