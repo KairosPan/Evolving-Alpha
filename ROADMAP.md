@@ -1,7 +1,7 @@
 # ROADMAP — 自进化游资系统(youzi)
 
 > 总图:我们在造什么、走到哪、下一步去哪。详细交接见 `PROJECT_STATE.md`;实验记录见 `docs/findings/`;每阶段 spec/plan 见 `docs/superpowers/`。
-> 截至 2026-06-09 · `main` · **299 测试全绿(离线)** · 🔎 **全架构评审已做**(`docs/findings/2026-06-09-arch-review.md`,本图据此重排)。
+> 截至 2026-06-09 · `codex/roadmap-b2` · **420 测试全绿(离线)** · 🔎 **全架构评审已做**(`docs/findings/2026-06-09-arch-review.md`,本图据此重排)。✅ **第一波+第二波+B2 已完成**(E1/C2/C1/A3/A1/E2/C4/B2,共 121 测试新增)。
 
 ---
 
@@ -55,24 +55,38 @@
 ### 评审(2026-06-09)
 - 30-agent 全架构评审:7 子系统精读 → 5 视角 36 提案 → 合并 24 → 16 条 P0/P1 对抗核实全存活(12 修正)。
 
+### 架构修复 第一波 — 修尺(2026-06-09,299→409 测试)
+- **E1 LLM record/replay 缓存**:`youzi/llm/cache.py` — `CachedLLMClient` 三模式(read_write/read_only/off),content-addressed key=sha256(model+temp+system+user+fingerprint);read_only miss 即 raise `CacheMissError`,决不静默回落 live;原子写;17 测试。
+- **C2 优势化信用**:`youzi/eval/scorer.py` + `metrics.py` + `harness/skill.py` + `refine/credit.py` + `loop/compare.py` + `eval/baselines.py` — `day_baseline`=决策日池均分;`advantage=score−day_baseline` 替换 apply_credit expectancy(保留 raw);compare 北极星切 mean_excess;新增 `PoolAveragePolicy`/`RandomFromPoolPolicy` 基线臂;17 测试。
+- **C1 统计裁决层**:`youzi/eval/stats.py` — `daily_series()`/`paired_daily_diff()`/`moving_block_bootstrap()`/`sign_permutation_pvalue()`/`mde()`/`verdict()`→`StatVerdict∈{win,loss,flat,insufficient}`;配对日<8→insufficient;compare 视图加 stat_verdict 卡;18 测试。
+- **A3 Refiner 证据重构**:`youzi/loop/inner_loop.py` — `last_refined_idx` 水位线非重叠窗+`evidence_min` 触发(保留 refine_every 上限);`youzi/refine/refiner.py` — `deque(maxlen=2)` 保留最近 2 次报告;`refiner_prompt.py` — 近期编辑史段+涉案技能全文渲染+patch 纪律注;11 测试。
+
+### 架构修复 第二波 — 修编辑触达(2026-06-09)
+- **A1 孵化→晋升+预算化检索注入**:`youzi/agent/retrieval.py` — `select_for_prompt(phase_prior ∪ applies_all, top-B1 技能/top-B2 记忆, weight<0.15 过滤)`;至多 3 条 incubating[试验]渲染;promote 证据门(n≥3 且均值>0);`resolve_skill` strip+casefold 归一;`agent/prompt.py` injection='full'|'retrieval';12 测试。
+- **E2 规则策略中层**:`youzi/eval/rule_policy.py` — `GateSpec`(强类型门)+`HarnessRulePolicy` 真读 H 零 LLM;`inner_loop.py` `agent_factory`+`_rebind`(防熔断后废弃 H);断言按 horizon 滞后对齐;17 测试(含 3 集成)。
+- **C4 Hcredit 消融臂**:`loop/compare.py` `ablate` 参数+`Hcredit` 臂(`enable_refine=False`);按日对齐配对差复用 C1;compare.html Hcredit 行+消融裁决;6 测试。
+
+### 架构修复 第三波 — 闭环与防线(部分,2026-06-09,409→420 测试)
+- **B2 熔断重设计**:`youzi/loop/inner_loop.py` — 熔断武装单位改为已评分决策日(`breaker_min_days`),日级 advantage-MAD fallback(`_fallback_trip`),影子配对双门(`_shadow_trip` + ε_abs + 方向门),`BreakerEvent.mode∈{rollback,frozen}`,冻结后停 `apply_credit`,退化窗起点前 checkpoint 整段回滚并可再武装;旧 `breaker_min_samples/window/baseline/floor_rel_margin` 仅保留兼容不再消费。`youzi/loop/compare.py` — `shadow=True` 时先跑 Hexpert,提取日级 advantage 序列注入 HCH/Hcredit 熔断,内部按 ≤当前已评分日过滤防前视;11 测试。
+
 ---
 
 ## 路线图(评审后重排,按波次;字母编号对应评审报告 §4)
 
-### 第一波 — 修尺(纯离线、零数据依赖、三线并行)⏭ 当前
+### 第一波 — 修尺(纯离线、零数据依赖、三线并行)✅ 已完成
 1. **E1 LLM record/replay 缓存(P0,M)**:`CachedLLMClient` 实现 LLMClient 协议,content-addressed key=sha256(model+temperature+system+user);record/replay/read_only 三模式,read_only miss 即 raise 决不静默回落 live;黄金 run 固化为离线回归(录制需一次真实 smoke,待 akshare/DeepSeek)。一次付费换永久确定性复跑;A2/A5 的成本前提。
 2. **C2 优势化信用(P0,M)**:`day_baseline`=决策日池全体同口径打分均值(PoolRecord 已录两日成员,零额外取数);`advantage=score−day_baseline` 替换消费面——apply_credit 的 expectancy(保留 raw)、refiner 信用行、compare 北极星检验;新增 PoolAverage/RandomFromPool 基线臂。把"行情给的"与"技能挣的"分开;advantage 自带零点使熔断地板天然 scorer 无关。
 3. **C1 统计裁决层(P0,M)**:`eval/stats.py`——日级等权聚合(空仓日记 0)、配对日差、移动块 bootstrap CI(块长 2-5,B≥10000,seed 可控)+符号置换+MDE;`verdict∈{win,loss,flat,insufficient}`(配对日<8→insufficient)替换裸符号,保留旧 bool 兼容;Phase-1 验收门改 `ci_low>0`。检验建在 advantage 口径上(C2 先合或同批)。
 4. **A3 Refiner 证据重构(P1,S)**:`last_refined_idx` 水位线非重叠证据窗+`evidence_min` 触发(保留 refine_every 作上限门);提示注入最近 2 次编辑史(applied rationale+rejected 拒因);涉案技能(信用∪签名命中)渲染全文。最便宜的收敛性修复。
 
-### 第二波 — 修编辑触达(自进化杠杆)
+### 第二波 — 修编辑触达(自进化杠杆)✅ 已完成
 5. **A1 孵化→晋升+预算化检索注入(P0,M)**:`agent/retrieval.py` select_for_prompt(phase_prior∪applies_all 截 top-B1 技能、weight() 降序截 top-B2 记忆且 weight<0.15 不渲染);渲染至多 3 条 incubating 试验位[试验];promote 加证据门(n≥3 且均值>0,镜像退役门);resolve_skill strip+casefold 归一;injection='full'|'retrieval' 开关。唯一直接打在"编辑不改变决策"病灶上的 P0。
 6. **E2 规则策略中层(P1,M)**:Skill 增 GateSpec(强类型机器可读门,仅测试种子填充);HarnessRulePolicy 真读 H 零 LLM;InnerLoop 加 agent_factory 注入(经 _rebind 重建,防熔断回滚后读废弃 H);断言按 horizon 滞后对齐。"编辑→决策改变→分数改变"首次进 CI;与 A1 互为验收器。
 7. **C4 Hcredit 消融臂(P1,S)**:`enable_refine` 开关得到"只有战绩回注、无结构编辑"第三臂;按日对齐配对差(复用 C1);把北极星拆成"在线反馈是否有益"与"结构编辑是否有益"。
 
-### 第三波 — 闭环与防线
+### 第三波 — 闭环与防线⏭ 当前(A2/C5 待做,B2 已完成)
 8. **A2 EditGate 编辑验收闸(P0,M)**:Refiner 在 sandbox 克隆上产出编辑;**主通道=前向影子验收**(H_candidate 与 live champion 并行前向 k 日虚拟打分,Δ≥0 才 adopt);后向回放只作冒烟闸、**不得**作为放宽退役门依据(in-sample 会放行恰被 1b-3d 治住的退化);GateRejectedEvent 回流作证据。依赖 C1 verdict+E1 降成本。
-9. **B2 熔断重设计(P1,M)**:武装单位换"已评分决策日"(breaker_min_days=3,删 40 候选门);主地板=影子配对差(双门 mean<−max(λ·std,ε_abs)+方向一致性副门);fallback=advantage-MAD 自标定;**apply_credit 包进 if not frozen**;回滚至退化窗起点+可再武装。作废"熔断 scorer-aware 重标定"债务。
+9. ✅ **B2 熔断重设计(P1,M)**:武装单位换"已评分决策日"(breaker_min_days=3,删 40 候选门);主地板=影子配对差(双门 mean<−max(λ·std,ε_abs)+方向一致性副门);fallback=advantage-MAD 自标定;**apply_credit 包进 if not frozen**;回滚至退化窗起点+可再武装。作废"熔断 scorer-aware 重标定"债务。
 10. **C5 实验预注册+ExperimentConfig(P1,M)**:声明式配置单源全量入 run meta(保留工厂注入);删 RefinerConfig.window 双旋钮;decay 升入 LoopConfig;run_protocol.py 先注册窗口后执行;完成率<80% 拒绝池化。下次真实跑之前必须就位。
 
 ### 数据线(与上并行,受 akshare off-peak 制约)

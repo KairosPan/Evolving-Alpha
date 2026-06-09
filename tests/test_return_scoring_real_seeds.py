@@ -78,7 +78,7 @@ def test_real_seeds_return_scoring_end_to_end(tmp_path):
     loop = InnerLoop(
         mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         MockLLMClient([_decision()]), MockLLMClient(['{"ops": []}']),
-        config=LoopConfig(breaker_min_samples=10_000),   # 不熔断,聚焦打分
+        config=LoopConfig(breaker_min_days=10_000),   # 不熔断,聚焦打分
         scorer=ReturnScorer(),
     )
     rep = loop.run()

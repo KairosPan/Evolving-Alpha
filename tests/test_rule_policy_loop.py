@@ -69,7 +69,7 @@ def _rule_loop(tmp_path, src, harness, refiner_scripts, refiner_config=None):
     cal = src.trading_calendar()
     loop = InnerLoop(mgr, src, cal[0], cal[-1],
                      MockLLMClient("agent 不应被调用"), MockLLMClient(refiner_scripts),
-                     config=LoopConfig(breaker_min_samples=10_000, evidence_min=1),
+                     config=LoopConfig(breaker_min_days=10_000, evidence_min=1),
                      refiner_config=refiner_config,
                      agent_factory=HarnessRulePolicy)
     return loop, mgr

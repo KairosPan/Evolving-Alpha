@@ -45,7 +45,7 @@ class ComparisonReport(BaseModel):
     # ⚠ 解读注意:长窗熔断时 HCH rollback_to 连 skill.stats 一起回滚,而 Hcredit 无 refine
     #   无 checkpoint、熔断只冻结不回滚——两臂 stats 历史不再对称。解读 hch_minus_hcredit
     #   前先核对 arms["HCH"].n_breaker_trips / arms["Hcredit"].n_breaker_trips(>0 时归因失真);
-    #   短窗(breaker_min_samples=40 默认)不受影响。
+    #   未武装的短窗(已评分日 < breaker_min_days=3,B2 日级武装)不受影响。
     hch_minus_hcredit_verdict: StatVerdict | None = None       # 编辑通道净效应(同窗日级配对)
     hcredit_minus_hexpert_verdict: StatVerdict | None = None   # 战绩回注通道净效应(同上)
     hcredit_loop_report: LoopReport | None = None  # Hcredit 完整环报告(照 HCH 做法;refine_events 应为空)
@@ -64,6 +64,7 @@ def compare_harnesses(
     refiner_config: RefinerConfig | None = None,
     scorer=None,
     ablate: bool = False,
+    shadow: bool = False,
 ) -> ComparisonReport:
     """四路同窗同 oracle 对比:HCH(自精炼内环)vs Hexpert(冻结种子 H + agent,无 Refiner)
     vs Hmin(HighestBoard / NoTrade)。每路独立 fresh 种子 H + 独立 LLM client(防交叉污染)。
@@ -71,13 +72,31 @@ def compare_harnesses(
     C4:ablate=True 时多跑第五臂 Hcredit(enable_refine=False 的内环:apply_credit
     在线战绩回注照常、无 Refiner 结构编辑),并产出两组配对日差裁决,把 HCH−Hexpert
     合效应拆成编辑通道(HCH−Hcredit)与 stats 通道(Hcredit−Hexpert)。
-    factory 调用顺序:HCH → Hcredit(仅 ablate)→ Hexpert(测试脚本按此对位)。"""
+
+    B2 ⑥:shadow=True 时**先跑 Hexpert** 臂,从其 trajectory 提取日级 advantage 序列
+    (eval.stats.daily_series 口径)作 shadow_daily 传入 HCH(与 Hcredit)的 InnerLoop
+    熔断(影子配对地板)——整窗序列含未来日,InnerLoop 内部按当前已评分日严格过滤
+    防前视。默认 False 行为不变。
+
+    factory 调用顺序(测试脚本按此对位):
+      shadow=False:HCH → Hcredit(仅 ablate)→ Hexpert;
+      shadow=True :Hexpert → HCH → Hcredit(仅 ablate)。"""
     cfg = loop_config or LoopConfig()
+
+    # Hexpert 评测器(C1:走 walk()+report_from_trajectory,留住 Trajectory 供日级统计)
+    wf = WalkForwardEval(source, start, end, horizon=cfg.horizon, scorer=scorer)
+    hexpert_traj = None
+    shadow_daily: dict[Date, float] | None = None
+    if shadow:
+        # B2 ⑥:先跑 Hexpert,日级 advantage 序列作影子地板喂给内环熔断
+        hexpert_traj = wf.walk(LLMAgentPolicy(harness_factory(), agent_llm_factory()))
+        shadow_daily = dict(daily_series(hexpert_traj))
 
     # HCH:自精炼内环
     mgr = HarnessManager(harness_factory(), store_factory())
     loop = InnerLoop(mgr, source, start, end, agent_llm_factory(),
-                     refiner_llm_factory(), cfg, refiner_config, scorer=scorer)
+                     refiner_llm_factory(), cfg, refiner_config, scorer=scorer,
+                     shadow_daily=shadow_daily)
     lr = loop.run()
     hch_eval = report_from_trajectory(lr.trajectory)
     hch_arm = ArmReport(name="HCH", report=hch_eval,
@@ -94,7 +113,8 @@ def compare_harnesses(
         mgr_c = HarnessManager(harness_factory(), store_factory())
         cfg_c = cfg.model_copy(update={"enable_refine": False})
         loop_c = InnerLoop(mgr_c, source, start, end, agent_llm_factory(),
-                           refiner_llm_factory(), cfg_c, refiner_config, scorer=scorer)
+                           refiner_llm_factory(), cfg_c, refiner_config, scorer=scorer,
+                           shadow_daily=shadow_daily)   # B2 ⑥:影子地板同样喂给消融臂
         hcredit_lr = loop_c.run()
         hcredit_arm = ArmReport(name="Hcredit",
                                 report=report_from_trajectory(hcredit_lr.trajectory),
@@ -105,8 +125,9 @@ def compare_harnesses(
     # Hexpert:冻结种子 H + agent(无 Refiner → H 全程不变)
     # C1:走 walk()+report_from_trajectory(与 run() 等价,有等价性测试守着),
     # 留住 Trajectory 供日级统计裁决——不重复跑 LLM。
-    wf = WalkForwardEval(source, start, end, horizon=cfg.horizon, scorer=scorer)
-    hexpert_traj = wf.walk(LLMAgentPolicy(harness_factory(), agent_llm_factory()))
+    # B2 ⑥:shadow=True 时 Hexpert 已先跑(轨迹复用,同样不重复跑 LLM)。
+    if hexpert_traj is None:
+        hexpert_traj = wf.walk(LLMAgentPolicy(harness_factory(), agent_llm_factory()))
     hexpert_eval = report_from_trajectory(hexpert_traj)
     hexpert_arm = ArmReport(name="Hexpert", report=hexpert_eval)
 
