@@ -21,6 +21,20 @@ def test_parse_valid_keeps_universe_codes():
     assert c.confidence == 0.8
 
 
+def test_parse_regime_read_into_package_and_defaults_empty():
+    # A1:regime_read 解析进 DecisionPackage(下一日作 phase_prior);缺字段/null → ""(旧 JSON 兼容)
+    raw = ('{"regime_read":" 主升 ","candidates":['
+           '{"code":"000001","pattern":"x","confidence":0.5}],"no_trade_reason":""}')
+    pkg = parse_decision(raw, date(2024, 6, 27), _uni())
+    assert pkg.regime_read == "主升"                              # strip 后入包
+    old = '{"candidates":[],"no_trade_reason":"观望"}'            # 旧格式无 regime_read
+    assert parse_decision(old, date(2024, 6, 27), _uni()).regime_read == ""
+    nul = '{"regime_read":null,"candidates":[]}'
+    assert parse_decision(nul, date(2024, 6, 27), _uni()).regime_read == ""
+    bad = parse_decision("这不是 JSON", date(2024, 6, 27), _uni())
+    assert bad.regime_read == ""                                  # 兜底空仓包默认空
+
+
 def test_parse_drops_hallucinated_code():
     raw = ('{"candidates":[{"code":"999999","pattern":"x","reason":"幻觉","confidence":0.9},'
            '{"code":"300002","pattern":"y","reason":"真","confidence":0.5}]}')

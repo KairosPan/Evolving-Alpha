@@ -26,7 +26,7 @@ _PASS_TOOLS_DOC: dict[str, str] = {
           '- patch_skill: {"skill_id","<字段>":<值>,...}(不可改 status/phases/ecologies)\n'
           '- retire_skill: {"skill_id","permanent":false}\n'
           '- revive_skill: {"skill_id"}(仅 dormant→incubating)\n'
-          '- promote_skill: {"skill_id"}(仅 incubating→active)'),
+          '- promote_skill: {"skill_id"}(仅 incubating→active,且须过证据门,见晋升纪律)'),
     "M": ('- process_memory: {"lesson_id","regime","outcome":"win|loss|principle","lesson",'
           '"pattern","failure_signature","named_analog"}\n'
           '- update_memory: {"lesson_id","<字段>":<值>,...}\n'
@@ -59,7 +59,8 @@ def _render_skill_full(s: Skill) -> list[str]:
 
 def build_refiner_system_prompt(h: HarnessState, pass_kind: PassKind,
                                 min_retire_samples: int = 5,
-                                involved_skill_ids: set[str] | None = None) -> str:
+                                involved_skill_ids: set[str] | None = None,
+                                min_promote_samples: int = 3) -> str:
     """某 pass 的复盘官系统提示:本 pass 改哪个容器 + 可用 meta-tool schema + 规则 + 当前 H 切片。
 
     involved_skill_ids(A3,仅 K-pass 消费):本窗证据涉案技能集合
@@ -104,6 +105,10 @@ def build_refiner_system_prompt(h: HarnessState, pass_kind: PassKind,
         out.append(
             "## patch 纪律(重要):patch_skill 是**整字段替换**:改 taboo 必须带上"
             "全部既有项+新增项,否则既有项会静默丢失(其他列表字段同理)。")
+        out.append(
+            f"## 晋升纪律(重要,A1):**promote 需 n≥{min_promote_samples} 且超额>0**"
+            f"(样本不足或无正优势会被拒,零证据不上岗);incubating 技能会以试验位注入"
+            f"决策提示(最多 3 条,创建新→旧)积累战绩——promote 前先让试验位证据说话。")
     elif pass_kind == "M":
         out.append("\n## 当前记忆:")
         for l in h.memory.all():

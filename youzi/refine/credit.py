@@ -38,14 +38,24 @@ class CreditReport(BaseModel):
 
 
 def resolve_skill(pattern: str, harness: HarnessState) -> Skill | None:
-    """pattern → Skill:先 skill_id 精确,再 name_cn 精确(多命中取第一个);都不中 → None。"""
-    if not pattern:
+    """pattern → Skill:先 skill_id 精确,再归一比对 skill_id,再归一比对 name_cn;都不中 → None。
+
+    归一(A1)= strip()+casefold():agent 引用技能时的大小写/首尾空白变体不再漏进
+    unattributed——孵化技能靠试验位攒样本,孵化期样本稀缺经不起精确匹配再漏。
+    多命中取第一个(registry 插入序,稳定)。
+    """
+    key = (pattern or "").strip()
+    if not key:
         return None
-    s = harness.skills.get(pattern)
+    s = harness.skills.get(pattern) or harness.skills.get(key)
     if s is not None:
         return s
+    norm = key.casefold()
     for sk in harness.skills.all():
-        if sk.name_cn == pattern:
+        if sk.skill_id.strip().casefold() == norm:
+            return sk
+    for sk in harness.skills.all():
+        if sk.name_cn.strip().casefold() == norm:
             return sk
     return None
 

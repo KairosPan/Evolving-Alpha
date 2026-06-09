@@ -51,6 +51,16 @@ def test_resolve_skill_by_id_then_name_then_none():
     assert resolve_skill("", h) is None
 
 
+def test_resolve_skill_normalizes_whitespace_and_case():
+    # A1:strip+casefold 归一——变体不再漏进 unattributed(孵化期样本稀缺经不起再漏)
+    h = _harness([_skill("pat_a", "龙头接力"), _skill("Mixed_Case", "混合案例")])
+    assert resolve_skill(" pat_a ", h).skill_id == "pat_a"      # 首尾空白
+    assert resolve_skill("PAT_A", h).skill_id == "pat_a"        # 大小写
+    assert resolve_skill(" 龙头接力 ", h).skill_id == "pat_a"    # name_cn 空白
+    assert resolve_skill("mixed_case", h).skill_id == "Mixed_Case"
+    assert resolve_skill("   ", h) is None                       # 纯空白不命中
+
+
 def test_apply_credit_updates_stats_and_distinguishes_faded_nuked():
     d0, d1, d2 = date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)
     h = _harness([_skill("pat_a")])

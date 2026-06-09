@@ -25,6 +25,7 @@ class RefinerConfig(BaseModel):
     max_edits_per_refine: int = 12
     window: int = 10
     min_retire_samples: int = Field(default=5, ge=1)   # retire_skill 需 skill.stats.n>=此值,防小样本过度退役
+    min_promote_samples: int = Field(default=3, ge=1)  # promote_skill 需 skill.stats.n>=此值 且 expectancy>0(A1 晋升证据门,镜像退役门)
 
 
 class AppliedEdit(BaseModel):
@@ -102,6 +103,23 @@ class Refiner:
                     pass_kind=pk, tool=op.tool, target_id=tid,
                     reason=(f"证据不足:n={sk.stats.n}<min_retire_samples="
                             f"{self._cfg.min_retire_samples},不退役(faded 是空耗非亏损,样本不足别退役)"))
+        # 晋升证据门(A1,镜像退役门):孵化技能须先经试验位积累战绩——n≥K 且
+        # 超额(expectancy=advantage)>0 才许 incubating→active,否则零证据上岗。
+        # 同退役门:只读 stats、不改 stats;目标不存在 → 落到 dispatch 的 KeyError 干净拒绝。
+        if op.tool == "promote_skill":
+            sk = self._h.skills.get(str(tid)) if tid else None
+            if sk is not None:
+                if sk.stats.n < self._cfg.min_promote_samples:
+                    return False, RejectedEdit(
+                        pass_kind=pk, tool=op.tool, target_id=tid,
+                        reason=(f"证据不足:n={sk.stats.n}<min_promote_samples="
+                                f"{self._cfg.min_promote_samples},不晋升(让它留在试验位积累战绩)"))
+                exp = sk.stats.expectancy
+                if exp is None or exp <= 0:
+                    return False, RejectedEdit(
+                        pass_kind=pk, tool=op.tool, target_id=tid,
+                        reason=(f"证据不足:超额={'无' if exp is None else f'{exp:+.2f}'}≤0,"
+                                "不晋升(无正优势不上岗,等证据或 retire 腾位)"))
         try:
             rec = self._dispatch(op)
         except (ImmutableDoctrineError, InvalidTransitionError, KeyError,
@@ -160,7 +178,8 @@ class Refiner:
                 notes.append(f"{pk}-pass reserved(G 子 Agent 未建,跳过)")
                 continue
             system = build_refiner_system_prompt(self._h, pk, self._cfg.min_retire_samples,
-                                                 involved_skill_ids=involved)
+                                                 involved_skill_ids=involved,
+                                                 min_promote_samples=self._cfg.min_promote_samples)
             user = build_refiner_user_prompt(traj, credit, signatures, self._cfg.window,
                                              recent_reports=history)
             ops = parse_ops(self._llm.complete(system, user))

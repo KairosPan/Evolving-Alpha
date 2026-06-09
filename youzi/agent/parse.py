@@ -51,4 +51,6 @@ def parse_decision(raw: str, date: Date, universe: CandidateUniverse) -> Decisio
             pattern=str(c.get("pattern") or ""), reason=str(c.get("reason") or ""),
             confidence=_clamp01(c.get("confidence", 0.5))))
     return DecisionPackage(date=date, candidates=cands,
-                           no_trade_reason=str(data.get("no_trade_reason") or ""))
+                           no_trade_reason=str(data.get("no_trade_reason") or ""),
+                           # A1:相位判读原文留进决策包(null/缺字段 → "",旧 JSON 兼容)
+                           regime_read=str(data.get("regime_read") or "").strip())
