@@ -136,6 +136,17 @@ def main(start_ymd: str, end_ymd: str, horizon: int = 1, temperature: float = 0.
           f"Δ被砸率={rep.hch_minus_hexpert_nuke_rate:+.4f}")
     verdict = "✅ HCH 胜 frozen" if rep.hch_beats_hexpert else "❌ HCH 未胜 frozen(持平或退化)"
     print(f"  verdict(超额口径 advantage=score−当日池基线): {verdict}")
+    sv = rep.stat_verdict
+    if sv is not None:   # C1 统计裁决一行摘要(日级配对差;insufficient=样本不足保守不下结论)
+        label = {"win": "✅ 显著胜出", "loss": "❌ 显著退化",
+                 "flat": "≈ 持平(无法区分)", "insufficient": "⚠ 样本不足"}[sv.verdict]
+        ci = (f"CI95=[{sv.ci_low:+.4f},{sv.ci_high:+.4f}]"
+              if sv.ci_low is not None else "CI95=—")
+        p = f"p={sv.p_value:.4f}" if sv.p_value is not None else "p=—"
+        m = f"MDE≈{sv.mde:.4f}" if sv.mde is not None else "MDE=—"
+        print(f"  stat_verdict(C1): {label}  配对日={sv.n_days}  "
+              f"日均差={sv.mean_diff:+.4f}  {ci}  {p}  {m}  "
+              f"(seed={sv.seed} block={sv.block_len} B={sv.n_boot})")
 
     # HCH 自进化到底改了啥(诊断:看 refine 每次的 applied/rejected 编辑)
     lr = rep.hch_loop_report

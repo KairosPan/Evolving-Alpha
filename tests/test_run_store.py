@@ -28,6 +28,7 @@ def test_save_load_roundtrip(tmp_path):
     assert set(got.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
     assert got.arms["HCH"].report.mean_score == rep.arms["HCH"].report.mean_score
     assert len(got.hch_loop_report.refine_events) == len(rep.hch_loop_report.refine_events)
+    assert got.stat_verdict == rep.stat_verdict      # C1:统计裁决随 run 持久化往返不丢
     assert meta["run_id"] == "r1" and meta["window"] == "w"
 
 
@@ -52,12 +53,13 @@ def test_sample_run_writes_a_run(tmp_path, monkeypatch):
 
 
 def test_load_old_json_without_c2_fields(tmp_path):
-    """C2 旧 JSON 兼容:存量 run(无 mean_excess/advantage/day_baseline/
-    hch_minus_hexpert_mean_excess)反序列化不崩,新字段走默认/回退。"""
+    """C2/C1 旧 JSON 兼容:存量 run(无 mean_excess/advantage/day_baseline/
+    hch_minus_hexpert_mean_excess/stat_verdict)反序列化不崩,新字段走默认/回退。"""
     import json
 
     _NEW_KEYS = {"mean_excess", "advantage", "day_baseline",
-                 "hch_minus_hexpert_mean_excess", "expectancy_raw"}
+                 "hch_minus_hexpert_mean_excess", "expectancy_raw",
+                 "stat_verdict"}                     # C1:旧 run 无统计裁决 → None
 
     def _strip(obj):
         if isinstance(obj, dict):
@@ -77,6 +79,7 @@ def test_load_old_json_without_c2_fields(tmp_path):
     assert meta["run_id"] == "old"
     assert got.hch_minus_hexpert_mean_excess == 0.0             # 缺省默认
     assert got.arms["HCH"].report.mean_excess == 0.0
+    assert got.stat_verdict is None                             # C1 缺省:旧 run 无统计裁决
     # ScoredCandidate.advantage 回退=score(基线缺失)
     for step in got.hch_loop_report.trajectory.scored_steps():
         for sc in step.outcomes.values():

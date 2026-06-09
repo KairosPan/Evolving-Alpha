@@ -152,3 +152,20 @@ def test_compare_accepts_scorer(tmp_path):
     rep, *_ = _compare(tmp_path, [_PICK_W], scorer=ReturnScorer())
     # 四路齐全;HCH 的 EvalReport 存在(收益打分)
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
+
+
+def test_stat_verdict_wired_end_to_end(tmp_path):
+    # C1 接线:HCH(lr.trajectory)与 Hexpert(wf.walk 的 Trajectory)日级配对 → StatVerdict。
+    # 3 日窗 horizon=1 → 2 个已评分日(尾日不入列);HCH 选 W 日级 adv=+0.5,Hexpert 空仓=0。
+    rep, *_ = _compare(tmp_path, [_PICK_W, _NO_TRADE])
+    sv = rep.stat_verdict
+    assert sv is not None
+    assert sv.n_days == 2
+    assert sv.mean_diff == pytest.approx(0.5)        # 日级配对差均值 = +0.5
+    assert sv.verdict == "insufficient"              # 2 < 8:小窗保守不下结论
+    assert sv.ci_low is not None and sv.p_value is not None   # n≥2 仍附信息
+    # 旧 bool 北极星裁决保留且不受影响
+    assert rep.hch_beats_hexpert is True
+    # Hexpert 改 walk()+report_from_trajectory 后行为等价(指标与旧 run() 路径一致)
+    assert rep.arms["Hexpert"].report.mean_score == 0.0
+    assert rep.arms["Hexpert"].report.n_decisions == 3

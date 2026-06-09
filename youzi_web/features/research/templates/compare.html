@@ -28,5 +28,23 @@
   <b>HCH − Hexpert</b>　Δ期望分 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_score) }}　Δ超额 {{ '%+.4f' | format(report.hch_minus_hexpert_mean_excess) }}　Δ命中率 {{ '%+.4f' | format(report.hch_minus_hexpert_hit_rate) }}　Δ被砸率 {{ '%+.4f' | format(report.hch_minus_hexpert_nuke_rate) }}<br>
   verdict(超额口径): {% if report.hch_beats_hexpert %}<span class="status-active">✅ HCH 胜 frozen</span>{% else %}<span class="status-retired">❌ HCH 未胜(持平/退化)</span>{% endif %}
 </div>
+<div class="card" style="margin-top:14px;">
+  <b>统计裁决</b>(C1:日级配对差 advantage 口径,移动块 bootstrap + 符号置换)<br>
+  {% set sv = report.stat_verdict %}
+  {% if not sv %}
+  <span class="muted">旧运行无统计裁决(需新管线重跑)</span>
+  {% else %}
+  裁决:
+  {% if sv.verdict == 'win' %}<span class="status-active">✅ 显著胜出</span>
+  {% elif sv.verdict == 'loss' %}<span class="status-retired">❌ 显著退化</span>
+  {% elif sv.verdict == 'insufficient' %}<span class="muted">⚠ 样本不足</span>
+  {% else %}<span class="muted">≈ 持平(无法区分)</span>{% endif %}
+  　配对日 {{ sv.n_days }}　日均差 {{ '%+.4f' | format(sv.mean_diff) }}
+  {% if sv.ci_low is not none %}　95% CI [{{ '%+.4f' | format(sv.ci_low) }}, {{ '%+.4f' | format(sv.ci_high) }}]{% endif %}
+  {% if sv.p_value is not none %}　p={{ '%.4f' | format(sv.p_value) }}{% endif %}
+  {% if sv.mde is not none %}　MDE≈{{ '%.4f' | format(sv.mde) }}{% endif %}
+  <div class="muted" style="margin-top:4px;">规则:配对日&lt;8→样本不足;CI 下界&gt;0→胜;CI 上界&lt;0→退化;否则持平。MDE=当前样本量/方差下最小可检测效应(诚实标尺,日均差小于它则检不出)。</div>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}

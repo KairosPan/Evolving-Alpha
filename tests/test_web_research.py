@@ -12,16 +12,17 @@ def _seed_run(tmp_path, monkeypatch):
 
 
 def test_views_resilient_to_no_loop_report_and_foreign_file(tmp_path, monkeypatch):
-    # hch_loop_report=None(类型允许)+ run 目录混入外来 json:三视图都 200(不 500)
+    # hch_loop_report=None + stat_verdict=None(模拟旧 run)+ 目录混入外来 json:三视图都 200(不 500)
     monkeypatch.setenv("YOUZI_RUNS_DIR", str(tmp_path))
     from youzi.loop.run_store import RunStore
     from tests.test_run_store import make_report
-    rep = make_report().model_copy(update={"hch_loop_report": None})
+    rep = make_report().model_copy(update={"hch_loop_report": None, "stat_verdict": None})
     RunStore(tmp_path).save("noloop", rep, {"window": "w", "scorer": "pool"})
     (tmp_path / "foreign.json").write_text('{"hello": "x"}', encoding="utf-8")
     c = TestClient(create_app())
     for p in ("/research/compare", "/research/refine", "/research/trajectory"):
         assert c.get(p).status_code == 200
+    assert "旧运行无统计裁决" in c.get("/research/compare").text   # C1:模板守 None
 
 
 def test_compare_view(tmp_path, monkeypatch):
@@ -31,6 +32,11 @@ def test_compare_view(tmp_path, monkeypatch):
     assert "HCH" in r.text and "Hexpert" in r.text
     assert "胜" in r.text or "未胜" in r.text          # verdict
     assert "sample" in r.text                          # 运行选择器
+    # C1 统计裁决块:夹具 run 仅 2 配对日 → 样本不足;CI/p 仍展示
+    assert "统计裁决" in r.text
+    assert "样本不足" in r.text
+    assert "配对日 2" in r.text
+    assert "95% CI" in r.text and "p=" in r.text
 
 
 def test_refine_and_trajectory_views(tmp_path, monkeypatch):
