@@ -79,7 +79,8 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     loop = InnerLoop(
         mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         MockLLMClient([_decision("A")]), MockLLMClient(_refiner_scripts()),
-        config=LoopConfig(breaker_min_samples=10_000),   # 不熔断
+        # A3:evidence_min=1 保持原意(每日 1 候选即 refine;默认 6 在 4 日窗内永不触发)
+        config=LoopConfig(breaker_min_days=10_000, evidence_min=1),   # 不熔断
     )
     rep = loop.run()
 
@@ -94,7 +95,10 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     # ② 在线信用:真实技能 relay_1to2(pattern 一进二)被引用且 continued → H 内 stats 已更新
     st = mgr.harness.skills.get(SEED_SKILL_ID).stats
     assert st.n == n - 1 and st.wins == n - 1
-    assert st.expectancy == 1.0          # 全 continued(+1)的累计均值
+    # C2 语义变更:expectancy=advantage(score−当日池基线)。单码池 {A} 基线=1.0 →
+    # 选 A=闭眼买全池,超额=0;原始口径移至 expectancy_raw(仍=全 continued 的 +1 均值)。
+    assert st.expectancy == 0.0
+    assert st.expectancy_raw == 1.0
 
     # ③ refine 每日触发(有新证据起):day1/day2/day3 各一次
     assert [e.date for e in rep.refine_events] == \
@@ -128,37 +132,40 @@ def test_real_seeds_end_to_end_act_score_credit_refine(tmp_path):
     assert f"({SEED_SKILL_ID})" in sys_day2
 
 
-def _nuke_src(n_days: int) -> FakeSource:
-    """每日 C_i 涨停;次日 C_i 跌停(被选后 horizon=1 必 nuked → 评分 -1)。"""
+def _bad_pick_src(n_days: int) -> FakeSource:
+    """每日池 {G, C_i}:G 持续涨停(+1), C_i 次日跌停(-1),用于制造负超额。"""
     days = [date(2024, 6, 1) + timedelta(days=k) for k in range(n_days)]
     frames: dict = {}
     for i, d in enumerate(days):
-        frames[("zt", d)] = pd.DataFrame({"code": [f"C{i}"], "name": [f"C{i}"], "boards": [1]})
+        frames[("zt", d)] = pd.DataFrame({"code": ["G", f"C{i}"], "name": ["稳", f"C{i}"],
+                                          "boards": [3, 1]})
         if i >= 1:
             frames[("dt", d)] = pd.DataFrame({"code": [f"C{i-1}"], "name": [f"C{i-1}"]})
     return FakeSource(frames, days)
 
 
-def test_real_seeds_breaker_rolls_back_and_freezes(tmp_path):
-    """坏结局:被选标的次日全跌停 → rolling 跌破 floor_abs → 熔断 rollback 上个 checkpoint + 冻结。"""
-    n = 8
-    src = _nuke_src(n)
+def test_real_seeds_breaker_rolls_back_then_freezes(tmp_path):
+    """坏结局:持续跑输同日池均值 → 首次整段回滚再武装,二次触发冻结。"""
+    n = 10
+    src = _bad_pick_src(n)
+    days = src.trading_calendar()
     mgr = _seeds_mgr(tmp_path)
-    agent_scripts = [_decision(f"C{i}") for i in range(n)]   # 每日选当日涨停 C_i,pattern=一进二
-    cfg = LoopConfig(breaker_window=2, baseline_window=2, breaker_min_samples=3,
-                     floor_abs=-0.5, refine_every=1)
+    agent_scripts = [_decision("G")] * 3 + [_decision(f"C{i}") for i in range(3, n)]
+    # A3:evidence_min=1 保持原意(熔断前需先发生过 refine 才有 checkpoint 可回滚)
+    cfg = LoopConfig(breaker_k_max=3, refine_every=1, evidence_min=1)
     loop = InnerLoop(mgr, src, src.trading_calendar()[0], src.trading_calendar()[-1],
                      MockLLMClient(agent_scripts), MockLLMClient(['{"ops": []}']),
                      config=cfg)
     rep = loop.run()
 
-    # 全 nuked(-1) → rolling=-1.0 < floor_abs(-0.5) → 熔断一次,走绝对地板分支
-    assert len(rep.breaker_events) == 1
-    be = rep.breaker_events[0]
-    assert be.reason == "rolling<floor_abs"
-    # 熔断前已有 refine(refine_every=1)→ 有 checkpoint → rollback 到它
-    assert be.rolled_back_to is not None
-    assert rep.frozen_from == be.date
+    assert [be.mode for be in rep.breaker_events] == ["rollback", "frozen"]
+    first, second = rep.breaker_events
+    assert "floor_abs" in first.reason
+    assert first.rolled_back_to is not None
+    pre_window = [e for e in rep.refine_events if e.date < days[2]]
+    assert first.rolled_back_to == pre_window[-1].checkpoint_version
+    assert second.rolled_back_to == first.rolled_back_to
+    assert rep.frozen_from == second.date
     # 冻结后不再 refine
     assert all(e.date < rep.frozen_from for e in rep.refine_events)
     # rollback 后 agent/refiner 已 _rebind 指向还原态同一 live H

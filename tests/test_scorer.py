@@ -40,3 +40,64 @@ def test_return_scorer_uses_return_and_drops_missing():
     assert set(out) == {"A"}                             # B 缺收益被丢弃
     assert out["A"].outcome == "continued"               # outcome 仍池类别
     assert out["A"].score == 0.20                        # score = 收益
+
+
+# ── C2:day_baseline / advantage ──────────────────────────────────────────────
+
+def test_pool_scorer_day_baseline_and_advantage_hand_computed():
+    # 决策日池 {A, C};exit 日:A continued(+1)、C 掉出全部池 → faded(0)
+    # → day_baseline = (1+0)/2 = 0.5(闭眼买全池的同日期望)
+    decision_mem = DayMembership(limit_up=frozenset({"A", "C"}), blowup=frozenset(),
+                                 limit_down=frozenset())
+    mem = DayMembership(limit_up=frozenset({"A"}), blowup=frozenset(),
+                        limit_down=frozenset({"B"}))
+    out = PoolScorer().score_step(_decision("A", "B"), mem,
+                                  date(2026, 6, 2), date(2026, 6, 2), None,
+                                  decision_mem=decision_mem)
+    assert out["A"].day_baseline == 0.5
+    assert out["A"].advantage == 0.5                     # 1.0 − 0.5
+    assert out["B"].advantage == -1.5                    # nuked:−1.0 − 0.5
+    assert out["A"].score == 1.0                         # 原始分不动
+
+
+def test_pool_scorer_empty_pool_baseline_none_advantage_falls_back():
+    # 空池日约定:决策日 limit_up 空(或 decision_mem=None)→ baseline=None,advantage 回退=score
+    mem = DayMembership(limit_up=frozenset({"A"}), blowup=frozenset(), limit_down=frozenset())
+    empty = DayMembership(limit_up=frozenset(), blowup=frozenset(), limit_down=frozenset())
+    for dm in (empty, None):
+        out = PoolScorer().score_step(_decision("A"), mem,
+                                      date(2026, 6, 2), date(2026, 6, 2), None,
+                                      decision_mem=dm)
+        assert out["A"].day_baseline is None
+        assert out["A"].advantage == out["A"].score == 1.0
+
+
+def test_return_scorer_day_baseline_pool_mean_return():
+    # 决策日池 {A, B, C}:A +0.20、B −0.10、C 无 OHLCV(剔除,与"缺收益丢弃"一致)
+    # → 基线 = (0.20 − 0.10)/2 = 0.05;候选 A 的超额 = 0.20 − 0.05 = 0.15
+    decision_mem = DayMembership(limit_up=frozenset({"A", "B", "C"}), blowup=frozenset(),
+                                 limit_down=frozenset())
+    mem = DayMembership(limit_up=frozenset({"A", "B"}), blowup=frozenset(), limit_down=frozenset())
+    df_a = _ohlcv([(date(2026, 6, 2), 10.0, 13, 9, 12.0, 100)])    # +0.20
+    df_b = _ohlcv([(date(2026, 6, 2), 10.0, 11, 8, 9.0, 100)])     # −0.10
+    src = FakeSource({}, [], ohlcv={"A": df_a, "B": df_b})
+    out = ReturnScorer().score_step(_decision("A"), mem,
+                                    date(2026, 6, 2), date(2026, 6, 2), src,
+                                    decision_mem=decision_mem)
+    assert abs(out["A"].day_baseline - 0.05) < 1e-9
+    assert abs(out["A"].advantage - 0.15) < 1e-9
+    assert out["A"].score == 0.20                        # 原始分不动
+
+
+def test_return_scorer_baseline_none_when_pool_has_no_returns():
+    # 池成员全缺 OHLCV → 基线 None;候选 A 自己有收益 → advantage 回退=score
+    decision_mem = DayMembership(limit_up=frozenset({"Z"}), blowup=frozenset(),
+                                 limit_down=frozenset())
+    mem = DayMembership(limit_up=frozenset({"A"}), blowup=frozenset(), limit_down=frozenset())
+    df_a = _ohlcv([(date(2026, 6, 2), 10.0, 13, 9, 12.0, 100)])    # +0.20
+    src = FakeSource({}, [], ohlcv={"A": df_a})
+    out = ReturnScorer().score_step(_decision("A"), mem,
+                                    date(2026, 6, 2), date(2026, 6, 2), src,
+                                    decision_mem=decision_mem)
+    assert out["A"].day_baseline is None
+    assert out["A"].advantage == out["A"].score == 0.20

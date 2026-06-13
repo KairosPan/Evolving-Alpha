@@ -18,6 +18,8 @@ def test_apply_op_accept_promote():
     # _harness 的技能 a 是 active;先 retire→revive 使其 incubating,再 promote
     r, h, meta = _refiner()
     meta.retire_skill("a"); meta.revive_skill("a")     # a -> incubating
+    h.skills.get("a").stats.n = 3                      # A1 晋升证据门:n>=3 且超额>0
+    h.skills.get("a").stats.expectancy = 0.2
     ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "a"},
                                    rationale="胜率回升"), "K", PASS_K())
     assert ok and isinstance(res, AppliedEdit)
@@ -173,6 +175,8 @@ def test_refine_malformed_op_does_not_abort_pass():
     h = _harness()
     from youzi.harness.skill import Skill
     h.skills.write(Skill.from_seed(_legal_skill("inc1")))   # 一个 incubating 技能供 promote
+    h.skills.get("inc1").stats.n = 3                        # A1 晋升证据门:n>=3 且超额>0
+    h.skills.get("inc1").stats.expectancy = 0.2
     k_ops = ('{"ops": ['
              '{"tool": "write_skill", "args": {"skill_id": "bad1", "name_cn": "坏",'
              ' "type": "pattern", "applicable_regime": ["主升", 2024], "trigger": "t",'
@@ -263,6 +267,8 @@ def test_refine_per_pass_cap_enforced():
         h.skills.write(Skill.from_seed({"skill_id": sid, "name_cn": sid, "type": "pattern",
                                         "applicable_regime": ["主升"], "trigger": "t",
                                         "entry": "e", "exit_stop": "x", "status": "incubating"}))
+        h.skills.get(sid).stats.n = 3                   # A1 晋升证据门:n>=3 且超额>0
+        h.skills.get(sid).stats.expectancy = 0.2
     k_ops = ('{"ops": ['
              '{"tool": "promote_skill", "args": {"skill_id": "b"}, "rationale": "r"},'
              '{"tool": "promote_skill", "args": {"skill_id": "c"}, "rationale": "r"},'
@@ -280,6 +286,8 @@ def test_refine_per_refine_cap_enforced():
         h.skills.write(Skill.from_seed({"skill_id": sid, "name_cn": sid, "type": "pattern",
                                         "applicable_regime": ["主升"], "trigger": "t",
                                         "entry": "e", "exit_stop": "x", "status": "incubating"}))
+        h.skills.get(sid).stats.n = 3                   # A1 晋升证据门:n>=3 且超额>0
+        h.skills.get(sid).stats.expectancy = 0.2
     k_ops = ('{"ops": ['
              '{"tool": "promote_skill", "args": {"skill_id": "b"}, "rationale": "r"},'
              '{"tool": "promote_skill", "args": {"skill_id": "c"}, "rationale": "r"}]}')
@@ -351,6 +359,93 @@ def test_refiner_config_rejects_degenerate_min_retire():
         RefinerConfig(min_retire_samples=0)
 
 
+# ── A1:晋升证据门(镜像退役门:n≥min_promote_samples 且 超额>0 才许 incubating→active)──
+
+def _with_incubating(h, sid, n=0, expectancy=None):
+    from youzi.harness.skill import Skill
+    h.skills.write(Skill.from_seed(_legal_skill(sid)))
+    s = h.skills.get(sid)
+    s.stats.n = n
+    s.stats.expectancy = expectancy
+    return s
+
+
+def test_promote_gate_rejects_thin_samples():
+    h = _harness()
+    _with_incubating(h, "inc1", n=2, expectancy=0.5)    # 超额够但 n=2<3
+    meta = MetaTools(h)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), meta, RefinerConfig(min_promote_samples=3))
+    ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "inc1"},
+                                   rationale="想晋升"), "K", PASS_K())
+    assert not ok and isinstance(res, RejectedEdit)
+    assert "证据不足" in res.reason and "min_promote_samples" in res.reason
+    assert h.skills.get("inc1").status == "incubating"   # 未半应用
+    assert len(meta.log) == 0                            # 未记日志
+
+
+def test_promote_gate_rejects_nonpositive_expectancy():
+    h = _harness()
+    _with_incubating(h, "inc1", n=5, expectancy=-0.1)   # n 够但超额<=0
+    meta = MetaTools(h)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), meta, RefinerConfig())
+    ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "inc1"},
+                                   rationale="想晋升"), "K", PASS_K())
+    assert not ok and "超额" in res.reason
+    assert h.skills.get("inc1").status == "incubating"
+    assert len(meta.log) == 0
+
+
+def test_promote_gate_rejects_missing_expectancy():
+    h = _harness()
+    _with_incubating(h, "inc1", n=5, expectancy=None)   # n 够但无超额观测(防 n 被旁路填充)
+    r = Refiner(h, MockLLMClient('{"ops": []}'), MetaTools(h), RefinerConfig())
+    ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "inc1"},
+                                   rationale="想晋升"), "K", PASS_K())
+    assert not ok and "证据不足" in res.reason
+    assert h.skills.get("inc1").status == "incubating"
+
+
+def test_promote_gate_allows_when_evidence():
+    h = _harness()
+    _with_incubating(h, "inc1", n=3, expectancy=0.01)   # 达标:n>=3 且超额>0
+    r = Refiner(h, MockLLMClient('{"ops": []}'), MetaTools(h), RefinerConfig())
+    ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "inc1"},
+                                   rationale="试验位3战皆超额"), "K", PASS_K())
+    assert ok and isinstance(res, AppliedEdit)
+    assert h.skills.get("inc1").status == "active"
+
+
+def test_promote_gate_does_not_swallow_hallucinated_target():
+    # 不存在的技能仍走 dispatch 的 KeyError(门只挡"存在但证据不足"),不误吞
+    h = _harness()
+    r = Refiner(h, MockLLMClient('{"ops": []}'), MetaTools(h), RefinerConfig())
+    ok, res = r._apply_op(RefineOp(tool="promote_skill", args={"skill_id": "不存在"},
+                                   rationale="r"), "K", PASS_K())
+    assert not ok and "KeyError" in res.reason
+
+
+def test_refine_level_rejects_zero_evidence_promote():
+    # refine() 整轮:K-pass 脚本晋升 n=0 孵化技能 → 进 rejected、状态未变
+    h = _harness()
+    _with_incubating(h, "inc1")                          # n=0, expectancy=None
+    k_ops = '{"ops": [{"tool": "promote_skill", "args": {"skill_id": "inc1"}, "rationale": "想晋升"}]}'
+    rep, h2, meta, llm = _run_refine(['{"ops": []}', k_ops, '{"ops": []}'], h=h)
+    assert rep.applied == []
+    assert len(rep.rejected) == 1 and "证据不足" in rep.rejected[0].reason
+    assert h2.skills.get("inc1").status == "incubating"
+
+
+def test_k_pass_prompt_states_promote_gate_threshold():
+    # K-pass 系统提示注明真实晋升门槛(config 值透传)
+    p = build_refiner_system_prompt(_harness(), "K", min_promote_samples=4)
+    assert "n≥4" in p and "超额>0" in p and "试验位" in p
+
+
+def test_refiner_config_rejects_degenerate_min_promote():
+    with pytest.raises(Exception):
+        RefinerConfig(min_promote_samples=0)
+
+
 def test_target_id_normalizes_numeric_id_no_crash():
     # LLM 把 id 发成数字({"skill_id": 7})时,拒绝路径不得崩——target_id 归一为 str
     h = _harness()
@@ -360,3 +455,48 @@ def test_target_id_normalizes_numeric_id_no_crash():
     assert not ok and isinstance(res, RejectedEdit)
     assert res.target_id == "7"          # 归一为字符串,不崩
     assert "KeyError" in res.reason      # 无技能 "7" → dispatch KeyError → 干净拒绝
+
+
+# ── A3:编辑史(_recent_reports)累积/maxlen=2 滚动/渲染进下次 user prompt ──
+
+def test_refine_history_accumulates_rolls_and_renders():
+    h = _harness()
+    from youzi.harness.skill import Skill
+    for sid in ("b", "c"):
+        h.skills.write(Skill.from_seed({"skill_id": sid, "name_cn": sid, "type": "pattern",
+                                        "applicable_regime": ["主升"], "trigger": "t",
+                                        "entry": "e", "exit_stop": "x", "status": "incubating"}))
+        h.skills.get(sid).stats.n = 3                   # A1 晋升证据门:n>=3 且超额>0
+        h.skills.get(sid).stats.expectancy = 0.2
+    empty = '{"ops": []}'
+    promote_b = '{"ops": [{"tool": "promote_skill", "args": {"skill_id": "b"}, "rationale": "晋升b"}]}'
+    # retire a:n=0<5 → 被退役证据门拒(产出 rejected 供历史渲染)
+    retire_a = '{"ops": [{"tool": "retire_skill", "args": {"skill_id": "a"}, "rationale": "想退"}]}'
+    promote_c = '{"ops": [{"tool": "promote_skill", "args": {"skill_id": "c"}, "rationale": "晋升c"}]}'
+    # 3 次 refine × 各 3 次 live 调用(p/K/M):
+    #   refine1: K 晋升 b(applied);refine2: K 退役 a(rejected);refine3: K 晋升 c
+    llm = MockLLMClient([empty, promote_b, empty,
+                         empty, retire_a, empty,
+                         empty, promote_c, empty])
+    r = Refiner(h, llm, MetaTools(h), RefinerConfig(min_retire_samples=5))
+    traj, credit, sigs = _empty_evidence()
+
+    rep1 = r.refine(traj, credit, sigs)
+    assert list(r._recent_reports) == [rep1]
+    # refine1 时无历史 → 编辑史段 "(无)"
+    assert "(无)" in llm.calls[0][1].split("近期编辑史")[1]
+
+    rep2 = r.refine(traj, credit, sigs)
+    # refine2 的 user prompt 渲染了 refine1 的 applied(tool/target/rationale)
+    u2 = llm.calls[3][1]
+    assert "[第1次/applied] K/promote_skill → b: 晋升b" in u2
+    assert list(r._recent_reports) == [rep1, rep2]
+
+    rep3 = r.refine(traj, credit, sigs)
+    # refine3 的 user prompt 同时渲染 refine1 的 applied 与 refine2 的 rejected(带拒因)
+    u3 = llm.calls[6][1]
+    assert "[第1次/applied] K/promote_skill → b: 晋升b" in u3
+    assert "[第2次/rejected] K/retire_skill → a: 拒因=" in u3
+    assert "证据不足" in u3                       # 拒因原文透给 LLM(此前完全不可见)
+    # maxlen=2 滚动:rep1 被挤出,只剩最近 2 次
+    assert list(r._recent_reports) == [rep2, rep3]

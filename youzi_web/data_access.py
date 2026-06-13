@@ -14,7 +14,11 @@ SEEDS_DIR = Path(__file__).resolve().parent.parent / "seeds"
 
 
 def harness_view(h: HarnessState) -> dict:
-    """领域 H → 视图 dict;补算 Skill 没有的 hit_rate/nuke_rate(=wins/n、nukes/n;n=0→None)。"""
+    """领域 H → 视图 dict;补算 Skill 没有的 hit_rate/nuke_rate(=wins/n、nukes/n;n=0→None)。
+
+    注:stats.expectancy 语义=超额(advantage,score−当日池基线;C2 起),模板标签同步注明;
+    原始口径在 stats.expectancy_raw,随 to_dict 透传。
+    """
     d = h.to_dict()
     for s in d["skills"]:
         st = s["stats"]

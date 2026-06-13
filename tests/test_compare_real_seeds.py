@@ -30,10 +30,15 @@ _NO_TRADE = '{"candidates": [], "no_trade_reason": "空仓"}'
 
 
 def _w_src():
-    """单码 W 每日涨停(continued);3 日。W 在 universe 内 → 决策不被当幻觉丢弃。"""
+    """W 每日涨停(continued)+ 每日一只只上一天榜的 L{i}(次日掉出 → faded);3 日。
+
+    C2 起 verdict 基于 mean_excess:单码池里选 W=闭眼买全池(超额恒 0,判不胜),
+    故池里放输家使基线=0.5、选 W 的 advantage=+0.5。W 在 universe 内 → 决策不被当幻觉丢弃。
+    """
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
-    frames = {("zt", d): pd.DataFrame({"code": ["W"], "name": ["赢家"], "boards": [2]})
-              for d in days}
+    frames = {("zt", d): pd.DataFrame({"code": ["W", f"L{i}"], "name": ["赢家", f"输{i}"],
+                                       "boards": [2, 1]})
+              for i, d in enumerate(days)}
     return FakeSource(frames, days)
 
 
@@ -66,7 +71,8 @@ def test_four_arms_end_to_end_on_real_seeds(tmp_path):
     rep = compare_harnesses(
         harness_f, src, src.trading_calendar()[0], src.trading_calendar()[-1],
         agent_llm_factory=agent_f, refiner_llm_factory=refiner_f,
-        store_factory=store_f, loop_config=LoopConfig())
+        # A3:evidence_min=1 保持原意(3 日窗每日 1 候选,默认 6 永不 refine → ③ 断言失真)
+        store_factory=store_f, loop_config=LoopConfig(evidence_min=1))
 
     # ① 四路齐全,各有 EvalReport
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
@@ -74,9 +80,12 @@ def test_four_arms_end_to_end_on_real_seeds(tmp_path):
         assert isinstance(arm.report, EvalReport)
 
     # ② HCH(自精炼)在真实种子下选中续板赢家 → 胜 frozen 种子空仓的 Hexpert
+    # C2:verdict 基于 mean_excess(去市场β);池 {W, L_i} 基线=0.5 → HCH 超额=+0.5
     assert rep.arms["HCH"].report.mean_score == 1.0
+    assert rep.arms["HCH"].report.mean_excess == 0.5
     assert rep.arms["Hexpert"].report.mean_score == 0.0
     assert rep.hch_minus_hexpert_mean_score > 0
+    assert rep.hch_minus_hexpert_mean_excess > 0
     assert rep.hch_beats_hexpert is True
 
     # ③ 内环真在跑:有评分证据 → 至少触发一次 refine,且未熔断

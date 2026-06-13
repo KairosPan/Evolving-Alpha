@@ -30,6 +30,9 @@ class DecisionPackage(BaseModel):
     date: Date
     candidates: list[Candidate] = Field(default_factory=list)
     no_trade_reason: str = ""
+    # A1:agent 对当日情绪相位的判读原文(≤t 自身输出)。下一交易日作 phase_prior
+    # 喂回检索注入(预算化技能选择),并为 G_cycle 留监督信号。可选默认空 → 旧 JSON 兼容。
+    regime_read: str = ""
 
 
 class DecisionPolicy(Protocol):
