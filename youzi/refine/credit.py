@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from youzi.eval.oracle import NON_TRADE_OUTCOMES
 from youzi.eval.trajectory import Trajectory
 from youzi.harness.harness import HarnessState
 from youzi.harness.skill import Skill
@@ -110,6 +111,8 @@ def apply_credit(traj: Trajectory, harness: HarnessState, decay: float = 0.1) ->
     n_scored = 0
     for step in traj.scored_steps():                  # 按 step 顺序=决策日序,忠实 ewma 衰减
         for code, sc in step.outcomes.items():
+            if sc.outcome in NON_TRADE_OUTCOMES:      # C3:unfillable/missing 无真实成交 → 不计信用
+                continue
             n_scored += 1
             skill = resolve_skill(sc.pattern, harness)
             if skill is None:

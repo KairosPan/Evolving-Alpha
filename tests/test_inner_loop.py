@@ -375,22 +375,25 @@ def test_loop_config_rejects_degenerate():
 
 
 def test_inner_loop_accepts_return_scorer(tmp_path):
+    from youzi.eval.fill import CostModel
     from youzi.eval.scorer import ReturnScorer
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
     frames = {("zt", d): pd.DataFrame({"code": ["W"], "name": ["赢家"], "boards": [2]}) for d in days}
-    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
+    # C3:加 6/26 bar 作 prev_close;horizon=2(T+1):决策 6/26 → entry 6/27 fill@10、exit 6/28 close=11
+    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 26), 10.0, 10.0, 10.0, 10.0, 100),
+                                (date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
                                 (date(2024, 6, 28), 10.6, 12, 10, 11.0, 200)],
                                columns=["date", "open", "high", "low", "close", "volume"])}
     src = FakeSource(frames, days, ohlcv=ohlcv)
     mgr = _mgr(tmp_path)
     loop = InnerLoop(mgr, src, days[0], days[-1], MockLLMClient(_decision("W")),
                      MockLLMClient('{"ops": []}'),
-                     config=LoopConfig(horizon=1, breaker_min_days=10_000),
+                     config=LoopConfig(horizon=2, breaker_min_days=10_000),
                      scorer=ReturnScorer())
     rep = loop.run()
-    # 决策 6/26 → entry=exit=6/27:(10.5−10)/10=+0.05;score 为收益
     sc = rep.trajectory.scored_steps()[0].outcomes["W"]
-    assert sc.outcome == "continued" and abs(sc.score - 0.05) < 1e-9
+    assert sc.outcome == "continued"
+    assert abs(sc.score - ((11.0 - 10.0) / 10.0 - CostModel().round_trip_cost())) < 1e-9
 
 
 # ── A3:水位线非重叠证据窗 + evidence_min 触发门 + 编辑史随 _rebind 作废 ──

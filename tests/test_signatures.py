@@ -65,3 +65,20 @@ def test_signatures_unresolved_pattern_skill_id_none():
     traj = Trajectory(steps=[_step(d, "X", "faded", 1, 2, pattern="无")], horizon=1)
     sigs = extract_signatures(traj, _h())
     assert len(sigs) == 1 and sigs[0].skill_id is None and sigs[0].kind == "faded_miss"
+
+
+def test_signatures_skip_nontrades():
+    # C3:unfillable/missing 无真实成交 → 不产失败签名(不得误落入 nuked 板位分支当 generic_nuke)
+    d = date(2024, 6, 26)
+
+    def _nt(code, oc):
+        sc = ScoredCandidate(decision_date=d, code=code, pattern="pat_a",
+                             outcome=oc, score=0.0, advantage=0.0)
+        return TrajectoryStep(
+            date=d, market=_state(d, 3),
+            decision=DecisionPackage(date=d, candidates=[Candidate(code=code, pattern="pat_a")]),
+            entries={code: EntrySnap(code=code, status="limit_up", boards=3)},
+            scored=True, outcomes={code: sc})
+
+    traj = Trajectory(steps=[_nt("U", "unfillable"), _nt("M", "missing")], horizon=1)
+    assert extract_signatures(traj, _h()) == []

@@ -64,10 +64,12 @@ class WalkForwardEval:
             remaining: list[int] = []
             for j in pending:
                 if idx >= j + self._horizon:
-                    mem = record.get(days_seen[j + self._horizon])
-                    assert mem is not None, f"BUG: 交易日 {days_seen[j + self._horizon]} 未录制成员"
+                    # 持有路径 entry..exit 逐日成员(days_seen[j+1 .. j+horizon];均已录制)
+                    mems = [record.get(days_seen[j + h]) for h in range(1, self._horizon + 1)]
+                    assert all(m is not None for m in mems), \
+                        f"BUG: 决策 {days_seen[j]} 的持有路径有交易日未录制成员"
                     outcomes = self._scorer.score_step(
-                        drafts[j]["decision"], mem,
+                        drafts[j]["decision"], mems,
                         days_seen[j + 1], days_seen[j + self._horizon], engine.guarded_source,
                         decision_mem=record.get(days_seen[j]))   # 决策日(≤t)池成员 → day_baseline
                     drafts[j]["outcomes"] = outcomes

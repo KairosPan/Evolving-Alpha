@@ -51,6 +51,20 @@ def test_daily_series_equal_weight_no_trade_zero_and_tail_excluded():
     assert daily_series(traj) == [(D0, 0.0), (D1, 0.0), (D2, 0.75)]
 
 
+def test_daily_series_excludes_nontrades():
+    # C3:unfillable/missing 无真实成交 → 不进日级 advantage(与熔断/metrics 同口径)
+    real = ScoredCandidate(decision_date=D0, code="A", pattern="p", outcome="continued",
+                           score=0.5, day_baseline=0.0)                       # advantage=0.5
+    miss = ScoredCandidate(decision_date=D0, code="B", pattern="p", outcome="missing",
+                           score=0.0, advantage=0.0)
+    unf = ScoredCandidate(decision_date=D0, code="C", pattern="p", outcome="unfillable",
+                          score=0.0, advantage=0.0)
+    traj = Trajectory(steps=[_step(D0, {"A": real, "B": miss, "C": unf})], horizon=1)
+    assert daily_series(traj) == [(D0, 0.5)]                  # 仅 A 计入,非 (0.5+0+0)/3
+    traj2 = Trajectory(steps=[_step(D0, {"B": miss, "C": unf})], horizon=1)
+    assert daily_series(traj2) == [(D0, 0.0)]                 # 全非成交日 → 视同空仓 0.0
+
+
 def test_daily_series_sorted_by_date():
     traj = Trajectory(steps=[_step(D2, {"C": _sc(D2, "C", 1.0, 0.0)}), _step(D0)],
                       horizon=1)
