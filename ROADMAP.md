@@ -1,7 +1,7 @@
 # ROADMAP — 自进化游资系统(youzi)
 
 > 总图:我们在造什么、走到哪、下一步去哪。详细交接见 `PROJECT_STATE.md`;实验记录见 `docs/findings/`;每阶段 spec/plan 见 `docs/superpowers/`。
-> 截至 2026-06-09 · `codex/roadmap-b2` · **420 测试全绿(离线)** · 🔎 **全架构评审已做**(`docs/findings/2026-06-09-arch-review.md`,本图据此重排)。✅ **第一波+第二波+B2 已完成**(E1/C2/C1/A3/A1/E2/C4/B2,共 121 测试新增)。
+> 截至 2026-06-14 · `main`(PR #3 已合并,merge `3d6804f`,无开放 PR) · **466 测试全绿(离线)** · 🔎 **全架构评审已做**(`docs/findings/2026-06-09-arch-review.md`,本图据此重排)。✅ **第一波+第二波+第三波(B2/C3/OHLCV fallback)已并入 main**(E1/C2/C1/A3/A1/E2/C4/B2/C3/OHLCV,共 178 测试新增);余第三波 A2 EditGate / C5 预注册 / D1 PIT。
 
 ---
 
