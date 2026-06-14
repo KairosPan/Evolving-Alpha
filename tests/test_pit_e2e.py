@@ -23,6 +23,6 @@ def test_offline_return_scoring_via_snapshot(tmp_path):
         agent_llm_factory=_SeqFactory([_PICK_W, _NO_TRADE]),
         refiner_llm_factory=_SeqFactory(['{"ops": []}']),
         store_factory=_CountFactory(lambda: SnapshotStore(tmp_path / "h")),
-        loop_config=LoopConfig(horizon=1), scorer=ReturnScorer())
+        loop_config=LoopConfig(horizon=2), scorer=ReturnScorer())   # C3:T+1 合规 horizon>=2
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
     assert rep.arms["HCH"].report.n_candidates >= 1     # W continued + OHLCV → 收益打分(候选>0)

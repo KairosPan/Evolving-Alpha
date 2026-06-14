@@ -24,6 +24,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from youzi.eval.oracle import NON_TRADE_OUTCOMES
+
 from youzi.eval.trajectory import Trajectory
 
 # 默认参数(spec:B≥10000、n_perm=20000、配对日<8→insufficient、块长 2-5 自适应)
@@ -65,7 +67,8 @@ def daily_series(traj: Trajectory) -> list[tuple[Date, float]]:
     for step in traj.steps:
         if not step.scored:
             continue
-        cands = list(step.outcomes.values())
+        # C3:unfillable/missing 无真实成交 → 排除(与熔断/metrics 同口径);全非成交日记 0.0
+        cands = [c for c in step.outcomes.values() if c.outcome not in NON_TRADE_OUTCOMES]
         v = sum(c.advantage for c in cands) / len(cands) if cands else 0.0
         out.append((step.date, v))
     out.sort(key=lambda t: t[0])

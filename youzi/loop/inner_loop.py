@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from youzi.agent.agent import LLMAgentPolicy
 from youzi.eval.decision import DecisionPolicy
-from youzi.eval.oracle import PoolRecord
+from youzi.eval.oracle import NON_TRADE_OUTCOMES, PoolRecord
 from youzi.eval.scorer import PoolScorer
 from youzi.eval.trajectory import EntrySnap, Trajectory, TrajectoryStep
 from youzi.harness.harness import HarnessState
@@ -263,10 +263,12 @@ class InnerLoop:
             remaining: list[int] = []
             for j in pending:
                 if idx >= j + cfg.horizon:
-                    mem = record.get(days_seen[j + cfg.horizon])
-                    assert mem is not None, f"BUG: {days_seen[j + cfg.horizon]} 未录成员"
+                    # 持有路径 entry..exit 逐日成员(days_seen[j+1 .. j+horizon];均已录制)
+                    mems = [record.get(days_seen[j + h]) for h in range(1, cfg.horizon + 1)]
+                    assert all(m is not None for m in mems), \
+                        f"BUG: {cursor} 持有路径有交易日未录成员"
                     outcomes = self._scorer.score_step(
-                        drafts[j]["decision"], mem,
+                        drafts[j]["decision"], mems,
                         days_seen[j + 1], days_seen[j + cfg.horizon], engine.guarded_source,
                         decision_mem=record.get(days_seen[j]))   # 决策日(≤t)池成员 → day_baseline
                     drafts[j]["outcomes"] = outcomes
@@ -288,7 +290,9 @@ class InnerLoop:
                     # B2 ① 日级武装证据:每个已评分决策日一个值=当日已评分候选 advantage
                     # 均值(空仓日 0.0;与 eval.stats.daily_series 同口径)。advantage=
                     # score−同日池基线,自带零点 → 两路判定天然 scorer 无关。
-                    cands = list(step.outcomes.values())
+                    # C3:unfillable/missing 无真实成交 → 不进熔断证据(advantage 无意义)
+                    cands = [c for c in step.outcomes.values()
+                             if c.outcome not in NON_TRADE_OUTCOMES]
                     v = sum(c.advantage for c in cands) / len(cands) if cands else 0.0
                     breaker_days.append((step.date, v))
             # ── B2 能力地板熔断(日级武装:已评分决策日数达 breaker_min_days 才评估)──

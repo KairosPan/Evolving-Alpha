@@ -54,6 +54,38 @@ def _ymd(day: Date) -> str:
     return day.strftime("%Y%m%d")
 
 
+def _market_prefix(code: str) -> str:
+    """code → 交易所前缀(sina/tencent 用 sh/sz/bj 前缀符号)。北交所先于沪判定(920 vs 9)。"""
+    if code.startswith(("4", "8", "92")):
+        return "bj"                                   # 北交所 43/83/87/88/920
+    if code.startswith(("5", "6", "9")):
+        return "sh"                                   # 沪主板 60 / 科创 68 / 沪 B 90 / 基金 5
+    return "sz"                                        # 深主板 00 / 创业 30 / 深 B 20
+
+
+def _fallback_ohlcv(providers, code: str, start: Date, end: Date) -> pd.DataFrame:
+    """按序尝试多个 OHLCV 数据源,首个返回非空(规整后)即用 → 抗单端点故障(eastmoney 限流切 sina/tencent)。
+
+    providers: list[callable(code, start, end) -> 规整后 DataFrame]。单源异常 → 记录并下一个;
+    单源合法返回空(无数据)→ 也尝试下一个;**全部成功调用但都空** → 返回带列空帧(诚实"无数据");
+    **全部抛异常**(没有任何成功调用,即全端点故障)→ re-raise 最后异常(不静默吞掉总故障)。
+    """
+    last_exc: Exception | None = None
+    any_success = False
+    for provider in providers:
+        try:
+            df = provider(code, start, end)
+            any_success = True
+        except Exception as e:                        # noqa: BLE001 — 单源故障 → 切下一源
+            last_exc = e
+            continue
+        if df is not None and not df.empty:
+            return df
+    if not any_success and last_exc is not None:      # 全端点故障(非"无数据")→ loud,不静默
+        raise last_exc
+    return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+
+
 def _retry_ak(fn, tries: int = 4, backoff: float = 1.0, sleep=None):
     """akshare 取数重试:网络抖动(connection reset 等)指数退避重试;ValueError(如炸板池 30 日限制)
     等确定性错误不重试。多日多窗实盘 eval 必需——否则单次瞬时抖动崩整轮。sleep 可注入便于测试。"""
@@ -90,6 +122,8 @@ class AkshareSource:
     def __init__(self) -> None:
         import akshare as ak
         self._ak = ak
+        # ② OHLCV 多源 fallback 链:eastmoney(主)→ sina → tencent,抗单端点限流/故障
+        self._ohlcv_providers = [self._ohlcv_eastmoney, self._ohlcv_sina, self._ohlcv_tencent]
 
     def trading_calendar(self) -> list[Date]:
         df = _retry_ak(lambda: self._ak.tool_trade_date_hist_sina())
@@ -108,9 +142,23 @@ class AkshareSource:
         return _normalize(_retry_ak(lambda: self._ak.stock_zt_pool_dtgc_em(date=_ymd(day))))
 
     def daily_ohlcv(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        # ② 多源 fallback:任一源限流/故障自动切换,全部 qfq 复权、规整为统一英文列
+        return _fallback_ohlcv(self._ohlcv_providers, code, start, end)
+
+    def _ohlcv_eastmoney(self, code: str, start: Date, end: Date) -> pd.DataFrame:
         return _normalize_ohlcv(_retry_ak(lambda: self._ak.stock_zh_a_hist(
             symbol=code, period="daily", start_date=_ymd(start),
             end_date=_ymd(end), adjust="qfq")))
+
+    def _ohlcv_sina(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        sym = _market_prefix(code) + code
+        return _normalize_ohlcv(_retry_ak(lambda: self._ak.stock_zh_a_daily(
+            symbol=sym, start_date=_ymd(start), end_date=_ymd(end), adjust="qfq")))
+
+    def _ohlcv_tencent(self, code: str, start: Date, end: Date) -> pd.DataFrame:
+        sym = _market_prefix(code) + code
+        return _normalize_ohlcv(_retry_ak(lambda: self._ak.stock_zh_a_hist_tx(
+            symbol=sym, start_date=_ymd(start), end_date=_ymd(end), adjust="qfq")))
 
 
 class GuardedSource:
@@ -121,6 +169,8 @@ class GuardedSource:
         self._guard = guard
 
     def trading_calendar(self) -> list[Date]:
+        # 有意不 guard:交易日历是公开的"哪些日子开市"日期表,非未来价格/结果;回放与
+        # 收益尺需用它枚举(含未来)交易日定位 entry/exit,守界只对**取数日**(下方各池/OHLCV)生效。
         return self._inner.trading_calendar()
 
     def zt_pool(self, day: Date) -> pd.DataFrame:

@@ -51,7 +51,9 @@ def _w_src():
     days = [date(2024, 6, 26), date(2024, 6, 27), date(2024, 6, 28)]
     frames = {("zt", d): pd.DataFrame({"code": ["W", f"L{i}"], "name": ["赢家", f"输{i}"],
                                        "boards": [2, 1]}) for i, d in enumerate(days)}
-    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
+    # C3:加决策日 6/26 bar 作 prev_close(ReturnScorer horizon>=2 用);6/27 open=10 普通成交
+    ohlcv = {"W": pd.DataFrame([(date(2024, 6, 26), 10.0, 10.0, 10.0, 10.0, 100),
+                               (date(2024, 6, 27), 10.0, 11, 9, 10.5, 100),
                                (date(2024, 6, 28), 10.6, 12, 10, 11.0, 200)],
                               columns=["date", "open", "high", "low", "close", "volume"])}
     return FakeSource(frames, days, ohlcv=ohlcv)
@@ -153,7 +155,9 @@ def test_hch_loop_report_exposed_for_introspection(tmp_path):
 
 def test_compare_accepts_scorer(tmp_path):
     from youzi.eval.scorer import ReturnScorer
-    rep, *_ = _compare(tmp_path, [_PICK_W], scorer=ReturnScorer())
+    # C3:ReturnScorer 要求 horizon>=2(T+1 合规)
+    rep, *_ = _compare(tmp_path, [_PICK_W], scorer=ReturnScorer(),
+                       cfg=LoopConfig(evidence_min=1, horizon=2))
     # 四路齐全;HCH 的 EvalReport 存在(收益打分)
     assert set(rep.arms) == {"HCH", "Hexpert", "Hmin_highest", "Hmin_notrade"}
 

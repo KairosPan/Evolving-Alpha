@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from youzi.eval.oracle import NON_TRADE_OUTCOMES
 from youzi.eval.trajectory import Trajectory
 from youzi.harness.harness import HarnessState
 from youzi.refine.credit import resolve_skill
@@ -30,7 +31,8 @@ def extract_signatures(traj: Trajectory, harness: HarnessState) -> list[FailureS
     for step in traj.scored_steps():
         mx = step.market.max_board_height
         for code, sc in step.outcomes.items():
-            if sc.outcome == "continued":
+            # continued 不产签名;C3:unfillable/missing 无真实成交 → 跳过(勿误落 nuked 板位分支)
+            if sc.outcome == "continued" or sc.outcome in NON_TRADE_OUTCOMES:
                 continue
             snap = step.entries.get(code)
             boards = snap.boards if snap is not None else None

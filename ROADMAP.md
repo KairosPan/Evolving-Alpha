@@ -66,8 +66,10 @@
 - **E2 规则策略中层**:`youzi/eval/rule_policy.py` — `GateSpec`(强类型门)+`HarnessRulePolicy` 真读 H 零 LLM;`inner_loop.py` `agent_factory`+`_rebind`(防熔断后废弃 H);断言按 horizon 滞后对齐;17 测试(含 3 集成)。
 - **C4 Hcredit 消融臂**:`loop/compare.py` `ablate` 参数+`Hcredit` 臂(`enable_refine=False`);按日对齐配对差复用 C1;compare.html Hcredit 行+消融裁决;6 测试。
 
-### 架构修复 第三波 — 闭环与防线(部分,2026-06-09,409→420 测试)
+### 架构修复 第三波 — 闭环与防线(部分,2026-06-09→13,409→466 测试)
 - **B2 熔断重设计**:`youzi/loop/inner_loop.py` — 熔断武装单位改为已评分决策日(`breaker_min_days`),日级 advantage-MAD fallback(`_fallback_trip`),影子配对双门(`_shadow_trip` + ε_abs + 方向门),`BreakerEvent.mode∈{rollback,frozen}`,冻结后停 `apply_credit`,退化窗起点前 checkpoint 整段回滚并可再武装;旧 `breaker_min_samples/window/baseline/floor_rel_margin` 仅保留兼容不再消费。`youzi/loop/compare.py` — `shadow=True` 时先跑 Hexpert,提取日级 advantage 序列注入 HCH/Hcredit 熔断,内部按 ≤当前已评分日过滤防前视;11 测试。
+- ✅ **C3 可成交收益尺(2026-06-13,420→462 测试)**:新增 `youzi/eval/fill.py`(`CostModel` 可配[佣金 3bp×2 / 印花税卖侧 5bp / 滑点 30bp]+`limit_threshold` 先板块后 ST+`fill_check` 一字板/开盘顶板/正常比值判定,qfq 不绝对取整);`oracle.py` 加 `path_outcome`+stop-on-nuke+`NON_TRADE_OUTCOMES`;`Scorer` 协议 `mem→mems`(持有路径逐日成员,`PoolScorer` 取 `mems[-1]` 字节级不变);`ReturnScorer` 重写(horizon≥2 守门下沉、覆盖 WalkForwardEval+InnerLoop 两路+`fill_check` 成交+`CostModel` 净收益+`unfillable`/`missing` 一等公民不丢弃+路径 stop-on-nuke[首日==entry 按 T+1 顺延]+净收益基线 cost 抵消);`EvalReport` 双口径(`mean_score` filled vs `mean_score_all_in`+`fill_rate`/`n_unfillable`/`n_missing`);消费方 `credit`/breaker/`stats.daily_series`/`signatures` 经 `NON_TRADE_OUTCOMES` 统一排除非成交。6 个依赖测试迁至 horizon≥2。**30-agent 对抗式终审 0 阻断**(12 项确认修复:revision-6 name 入场池回退、path_dates↔mems 对齐 assert、基线缓存键含 mems、`EvalReport` 旧 JSON 回兼、signatures/daily_series 非成交漏过 等)。
+- ✅ **OHLCV 多源 fallback(2026-06-13,466 测试)**:`data/source.py` `_fallback_ohlcv`(eastmoney→sina→tencent,单源异常/空切下一源,**全端点故障才 loud**)+`_market_prefix`;`AkshareSource.daily_ohlcv` 走三源 fallback 链(各 `_retry_ak`+qfq+规整);7 测试(纯离线编排)。
 
 ---
 
@@ -84,14 +86,14 @@
 6. **E2 规则策略中层(P1,M)**:Skill 增 GateSpec(强类型机器可读门,仅测试种子填充);HarnessRulePolicy 真读 H 零 LLM;InnerLoop 加 agent_factory 注入(经 _rebind 重建,防熔断回滚后读废弃 H);断言按 horizon 滞后对齐。"编辑→决策改变→分数改变"首次进 CI;与 A1 互为验收器。
 7. **C4 Hcredit 消融臂(P1,S)**:`enable_refine` 开关得到"只有战绩回注、无结构编辑"第三臂;按日对齐配对差(复用 C1);把北极星拆成"在线反馈是否有益"与"结构编辑是否有益"。
 
-### 第三波 — 闭环与防线⏭ 当前(A2/C5 待做,B2 已完成)
+### 第三波 — 闭环与防线⏭ 当前(A2/C5 待做,B2/C3 已完成)
 8. **A2 EditGate 编辑验收闸(P0,M)**:Refiner 在 sandbox 克隆上产出编辑;**主通道=前向影子验收**(H_candidate 与 live champion 并行前向 k 日虚拟打分,Δ≥0 才 adopt);后向回放只作冒烟闸、**不得**作为放宽退役门依据(in-sample 会放行恰被 1b-3d 治住的退化);GateRejectedEvent 回流作证据。依赖 C1 verdict+E1 降成本。
 9. ✅ **B2 熔断重设计(P1,M)**:武装单位换"已评分决策日"(breaker_min_days=3,删 40 候选门);主地板=影子配对差(双门 mean<−max(λ·std,ε_abs)+方向一致性副门);fallback=advantage-MAD 自标定;**apply_credit 包进 if not frozen**;回滚至退化窗起点+可再武装。作废"熔断 scorer-aware 重标定"债务。
 10. **C5 实验预注册+ExperimentConfig(P1,M)**:声明式配置单源全量入 run meta(保留工厂注入);删 RefinerConfig.window 双旋钮;decay 升入 LoopConfig;run_protocol.py 先注册窗口后执行;完成率<80% 拒绝池化。下次真实跑之前必须就位。
 
 ### 数据线(与上并行,受 akshare off-peak 制约)
-- **D1 PIT 完整性闭环(P1,L;建库时升 P0)**:sidecar manifest 五态语义分型(限流不再伪装"今日无炸板")+covers 范围语义+整段重抓原子重写(qfq 复权基准不可 merge)+契约分级+snapshot_doctor 强制门 → 建库 → **C3 可成交收益尺(P0,M,代码离线先行)**:T+1 守门(entry==exit raise,ReturnScorer 须 horizon≥2)+一字板成交判定(先板块后 ST)+CostModel+缺数一等公民+path stop-on-nuke → **B1 相位分类器 G-0(P1,L)**:三相+None 起步、SkillStats 相位分桶(桶级证据门复用 1b-3d 纪律)、软过滤注入+翻案通道、relay_in_ebb 签名。
-- **OHLCV 多源 fallback**(eastmoney→sina→tencent,纯离线小切片,当下就能做)。
+- **D1 PIT 完整性闭环(P1,L;建库时升 P0)**:sidecar manifest 五态语义分型(限流不再伪装"今日无炸板")+covers 范围语义+整段重抓原子重写(qfq 复权基准不可 merge)+契约分级+snapshot_doctor 强制门 → 建库 → ✅ **C3 可成交收益尺(已完成 2026-06-13,代码离线先行)**:T+1 守门(entry==exit raise,ReturnScorer 须 horizon≥2)+一字板成交判定(先板块后 ST)+CostModel+缺数一等公民+path stop-on-nuke → **B1 相位分类器 G-0(P1,L)**:三相+None 起步、SkillStats 相位分桶(桶级证据门复用 1b-3d 纪律)、软过滤注入+翻案通道、relay_in_ebb 签名。
+- ✅ **OHLCV 多源 fallback(已完成 2026-06-13)**(eastmoney→sina→tencent,`_fallback_ohlcv`+`_market_prefix`;真实切片验证仍需 off-peak 联网)。
 
 ### 第四波 / 后备
 - **A4 赢家/MissedWinner 挖掘(P1,M)**(必须标 fill_doubt)→ **A5 best-of-N 编辑锦标赛(P1,L)**(依赖 A2+C1+快照+ReturnScorer;=蓝图育种场最小版)。
@@ -114,8 +116,8 @@
 | 熔断 scorer-aware 重标定 | **由 B2 作废**(advantage-MAD/影子配对自标定) |
 | 选择性提示注入(按 regime) | **升级为第二波 A1**(检索注入) |
 | friction:update_memory lesson_id / 重复 lesson_id | **由 A3 治本**(编辑史注入+非重叠窗) |
-| fill-feasibility / 成本滑点 | **升级为 C3**(可成交收益尺) |
-| OHLCV 多源 fallback | 数据线,当下可做 |
+| fill-feasibility / 成本滑点 | **✅ 由 C3 完成(2026-06-13)**(fill_check + CostModel) |
+| OHLCV 多源 fallback | **✅ 完成(2026-06-13)**(eastmoney→sina→tencent) |
 | 真历史回测 / PIT 自建 / 幸存者偏差 | D1(闭环)+ D2 derive_zt_pool(P2) |
 | FE live 接线 / 触发跑批 / news / agents | 轨道 C |
 
