@@ -4,8 +4,11 @@ import json
 from datetime import date as Date, datetime as DateTime
 from typing import Callable
 
+from youzi.store import account
 from youzi.store.db import Database
-from youzi.store.models import OpsCandidate, OpsDecision, OpsSession
+from youzi.store.models import (
+    OpsCandidate, OpsDecision, OpsFill, OpsPosition, OpsSession,
+)
 
 
 def _iso(v) -> str | None:
@@ -127,6 +130,85 @@ class OpsRepository:
             "SELECT * FROM ops_decision WHERE session_id=? ORDER BY decision_id ASC",
             (session_id,))
         return [self._row_to_decision(r) for r in rows]
+
+    # ── 成交 + 持仓 ──
+    def record_fill(self, fill: OpsFill) -> tuple[OpsFill, OpsPosition]:
+        pos = self.open_position_for(fill.code)
+        if pos is None:
+            if fill.side == "sell":
+                raise ValueError(f"{fill.code} 无持仓可卖")
+            pos = self._create_position(fill)
+        state = account.PositionState(
+            qty_open=pos.qty_open, avg_cost=pos.avg_cost,
+            realized_pnl=pos.realized_pnl, status=pos.status)
+        if fill.side == "buy":
+            state = account.apply_buy(state, fill.price, fill.qty, fill.fee)
+        else:
+            state = account.apply_sell(state, fill.price, fill.qty, fill.fee)
+        closed_on = fill.filled_at.date() if state.status == "closed" else None
+        self._db.execute(
+            "UPDATE ops_position SET qty_open=?, avg_cost=?, realized_pnl=?, "
+            "status=?, closed_on=? WHERE position_id=?",
+            (state.qty_open, state.avg_cost, state.realized_pnl, state.status,
+             _iso(closed_on), pos.position_id))
+        cur = self._db.execute(
+            "INSERT INTO ops_fill (decision_id, position_id, code, side, price, qty, "
+            "filled_at, fee, note) VALUES (?,?,?,?,?,?,?,?,?)",
+            (fill.decision_id, pos.position_id, fill.code, fill.side, fill.price,
+             fill.qty, _iso(fill.filled_at), fill.fee, fill.note))
+        if fill.decision_id is not None:
+            self._db.execute("UPDATE ops_decision SET status='executed' WHERE decision_id=?",
+                             (fill.decision_id,))
+        self._db.commit()
+        saved_fill = fill.model_copy(update={"fill_id": cur.lastrowid,
+                                             "position_id": pos.position_id})
+        return saved_fill, self.get_position(pos.position_id)
+
+    def _create_position(self, fill: OpsFill) -> OpsPosition:
+        pattern = ""
+        if fill.decision_id is not None:
+            row = self._db.query_one(
+                "SELECT c.pattern AS pattern FROM ops_decision d "
+                "LEFT JOIN ops_candidate c ON c.candidate_id=d.candidate_id "
+                "WHERE d.decision_id=?", (fill.decision_id,))
+            if row and row["pattern"]:
+                pattern = row["pattern"]
+        cur = self._db.execute(
+            "INSERT INTO ops_position (code, pattern, opened_on, status, qty_open, "
+            "avg_cost, realized_pnl, origin_decision_id) VALUES (?,?,?,?,?,?,?,?)",
+            (fill.code, pattern, _iso(fill.filled_at.date()), "open", 0, 0.0, 0.0,
+             fill.decision_id))
+        self._db.commit()
+        return self.get_position(cur.lastrowid)
+
+    def get_position(self, position_id: int) -> OpsPosition | None:
+        row = self._db.query_one(
+            "SELECT * FROM ops_position WHERE position_id=?", (position_id,))
+        return self._row_to_position(row) if row else None
+
+    def open_position_for(self, code: str) -> OpsPosition | None:
+        row = self._db.query_one(
+            "SELECT * FROM ops_position WHERE code=? AND status='open' "
+            "ORDER BY position_id DESC LIMIT 1", (code,))
+        return self._row_to_position(row) if row else None
+
+    def positions(self, status: str | None = None) -> list[OpsPosition]:
+        if status is None:
+            rows = self._db.query_all(
+                "SELECT * FROM ops_position ORDER BY position_id ASC")
+        else:
+            rows = self._db.query_all(
+                "SELECT * FROM ops_position WHERE status=? ORDER BY position_id ASC",
+                (status,))
+        return [self._row_to_position(r) for r in rows]
+
+    def _row_to_position(self, r) -> OpsPosition:
+        return OpsPosition(
+            position_id=r["position_id"], code=r["code"], name=r["name"],
+            pattern=r["pattern"], opened_on=_parse_date(r["opened_on"]),
+            closed_on=_parse_date(r["closed_on"]), status=r["status"],
+            qty_open=r["qty_open"], avg_cost=r["avg_cost"],
+            realized_pnl=r["realized_pnl"], origin_decision_id=r["origin_decision_id"])
 
     # ── row → model ──
     def _row_to_session(self, r) -> OpsSession:

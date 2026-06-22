@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pytest
 
 from youzi.store.db import Database
-from youzi.store.models import OpsCandidate, OpsDecision, OpsSession
+from youzi.store.models import OpsCandidate, OpsDecision, OpsSession, OpsFill
 from youzi.store.ops_repo import OpsRepository
 
 FIXED = datetime(2026, 6, 22, 8, 0, 0)
@@ -73,3 +73,39 @@ def test_manual_add_has_no_candidate(repo):
     d = repo.manual_add(s.session_id, "000001", intent_side="buy")
     assert d.candidate_id is None and d.code == "000001" and d.action == "manual_add"
     assert [x.decision_id for x in repo.decisions_for(s.session_id)] == [d.decision_id]
+
+
+def test_buy_fill_opens_position(repo):
+    s = repo.create_session(OpsSession(trade_date=date(2026, 6, 22)))
+    fill, pos = repo.record_fill(OpsFill(
+        code="600519", side="buy", price=10.0, qty=100,
+        filled_at=datetime(2026, 6, 23, 9, 30), fee=5.0))
+    assert fill.fill_id is not None and fill.position_id == pos.position_id
+    assert pos.status == "open" and pos.qty_open == 100
+    assert pos.opened_on == date(2026, 6, 23)
+    assert repo.open_position_for("600519").position_id == pos.position_id
+
+
+def test_sell_fill_realizes_pnl_and_closes(repo):
+    repo.record_fill(OpsFill(code="600519", side="buy", price=10.0, qty=100,
+                             filled_at=datetime(2026, 6, 23, 9, 30)))
+    fill, pos = repo.record_fill(OpsFill(
+        code="600519", side="sell", price=12.0, qty=100,
+        filled_at=datetime(2026, 6, 24, 14, 0), fee=3.0))
+    assert pos.status == "closed" and pos.qty_open == 0
+    assert pos.realized_pnl == pytest.approx((12.0 - 10.0) * 100 - 3.0)
+    assert pos.closed_on == date(2026, 6, 24)
+
+
+def test_fill_marks_linked_decision_executed(repo):
+    s = repo.create_session(OpsSession(trade_date=date(2026, 6, 22)))
+    d = repo.manual_add(s.session_id, "000001", intent_side="buy")
+    repo.record_fill(OpsFill(decision_id=d.decision_id, code="000001", side="buy",
+                             price=8.0, qty=200, filled_at=datetime(2026, 6, 23, 9, 30)))
+    assert repo.decisions_for(s.session_id)[0].status == "executed"
+
+
+def test_sell_without_position_raises(repo):
+    with pytest.raises(ValueError):
+        repo.record_fill(OpsFill(code="600519", side="sell", price=12.0, qty=100,
+                                 filled_at=datetime(2026, 6, 24, 14, 0)))
