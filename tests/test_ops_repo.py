@@ -3,7 +3,9 @@ from datetime import date, datetime
 import pytest
 
 from youzi.store.db import Database
-from youzi.store.models import OpsCandidate, OpsDecision, OpsSession, OpsFill
+from youzi.store.models import (
+    AccountDaily, OpsCandidate, OpsDecision, OpsSession, OpsFill, OpsReview,
+)
 from youzi.store.ops_repo import OpsRepository
 
 FIXED = datetime(2026, 6, 22, 8, 0, 0)
@@ -109,3 +111,40 @@ def test_sell_without_position_raises(repo):
     with pytest.raises(ValueError):
         repo.record_fill(OpsFill(code="600519", side="sell", price=12.0, qty=100,
                                  filled_at=datetime(2026, 6, 24, 14, 0)))
+
+
+def test_review_roundtrip(repo):
+    s = repo.create_session(OpsSession(trade_date=date(2026, 6, 22)))
+    r = repo.add_review(OpsReview(session_id=s.session_id, body="该止盈没止",
+                                  tags="情绪误判", lesson_ref="L-退潮-减仓"))
+    assert r.review_id is not None and r.created_at == FIXED
+    got = repo.reviews_for_session(s.session_id)
+    assert got[0].lesson_ref == "L-退潮-减仓"
+
+
+def test_account_daily_upsert(repo):
+    repo.upsert_account_daily(AccountDaily(trade_date=date(2026, 6, 23), equity=100000.0))
+    repo.upsert_account_daily(AccountDaily(trade_date=date(2026, 6, 23), equity=101000.0))
+    a = repo.account_daily(date(2026, 6, 23))
+    assert a.equity == pytest.approx(101000.0)        # 覆盖而非重复
+    assert a.cash is None                              # 未填诚实 None
+
+
+def test_pattern_winrate_over_closed_positions(repo):
+    # 首板:一盈;连板:一亏。各开平一笔。
+    repo.record_fill(OpsFill(code="600519", side="buy", price=10.0, qty=100,
+                             filled_at=datetime(2026, 6, 23, 9, 30)))
+    # 给 600519 持仓打 pattern(直接建仓无决策 → pattern 空,手动用 review 不影响)。
+    # 这里改用带决策的路径验证 pattern 归属:
+    s = repo.create_session(OpsSession(trade_date=date(2026, 6, 22)))
+    [c1] = repo.add_candidates(s.session_id, [
+        OpsCandidate(session_id=s.session_id, code="000001", rank=1, pattern="连板")])
+    d1 = repo.confirm_decision(s.session_id, c1.candidate_id, intent_side="buy")
+    repo.record_fill(OpsFill(decision_id=d1.decision_id, code="000001", side="buy",
+                             price=20.0, qty=100, filled_at=datetime(2026, 6, 23, 9, 30)))
+    repo.record_fill(OpsFill(code="000001", side="sell", price=18.0, qty=100,
+                             filled_at=datetime(2026, 6, 24, 14, 0)))
+    rows = repo.pattern_winrate()
+    lianban = next(r for r in rows if r["pattern"] == "连板")
+    assert lianban["closed"] == 1 and lianban["wins"] == 0
+    assert lianban["avg_pnl"] == pytest.approx((18.0 - 20.0) * 100)

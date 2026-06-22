@@ -7,7 +7,8 @@ from typing import Callable
 from youzi.store import account
 from youzi.store.db import Database
 from youzi.store.models import (
-    OpsCandidate, OpsDecision, OpsFill, OpsPosition, OpsSession,
+    AccountDaily, OpsCandidate, OpsDecision, OpsFill, OpsPosition, OpsReview,
+    OpsSession,
 )
 
 
@@ -208,6 +209,63 @@ class OpsRepository:
             closed_on=_parse_date(r["closed_on"]), status=r["status"],
             qty_open=r["qty_open"], avg_cost=r["avg_cost"],
             realized_pnl=r["realized_pnl"], origin_decision_id=r["origin_decision_id"])
+
+    # ── 复盘 ──
+    def add_review(self, r: OpsReview) -> OpsReview:
+        created = r.created_at or self._clock()
+        cur = self._db.execute(
+            "INSERT INTO ops_review (session_id, position_id, body, tags, lesson_ref, "
+            "created_at) VALUES (?,?,?,?,?,?)",
+            (r.session_id, r.position_id, r.body, r.tags, r.lesson_ref, _iso(created)))
+        self._db.commit()
+        return r.model_copy(update={"review_id": cur.lastrowid, "created_at": created})
+
+    def reviews_for_session(self, session_id: int) -> list[OpsReview]:
+        rows = self._db.query_all(
+            "SELECT * FROM ops_review WHERE session_id=? ORDER BY review_id ASC",
+            (session_id,))
+        return [self._row_to_review(r) for r in rows]
+
+    def _row_to_review(self, r) -> OpsReview:
+        return OpsReview(
+            review_id=r["review_id"], session_id=r["session_id"],
+            position_id=r["position_id"], body=r["body"], tags=r["tags"],
+            lesson_ref=r["lesson_ref"], created_at=_parse_dt(r["created_at"]))
+
+    # ── 账户日快照 ──
+    def upsert_account_daily(self, a: AccountDaily) -> AccountDaily:
+        self._db.execute(
+            "INSERT INTO ops_account_daily (trade_date, equity, cash, market_value, "
+            "realized_pnl_day, unrealized_pnl, note) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(trade_date) DO UPDATE SET equity=excluded.equity, "
+            "cash=excluded.cash, market_value=excluded.market_value, "
+            "realized_pnl_day=excluded.realized_pnl_day, "
+            "unrealized_pnl=excluded.unrealized_pnl, note=excluded.note",
+            (_iso(a.trade_date), a.equity, a.cash, a.market_value,
+             a.realized_pnl_day, a.unrealized_pnl, a.note))
+        self._db.commit()
+        return a
+
+    def account_daily(self, trade_date: Date) -> AccountDaily | None:
+        row = self._db.query_one(
+            "SELECT * FROM ops_account_daily WHERE trade_date=?", (_iso(trade_date),))
+        if row is None:
+            return None
+        return AccountDaily(
+            trade_date=_parse_date(row["trade_date"]), equity=row["equity"],
+            cash=row["cash"], market_value=row["market_value"],
+            realized_pnl_day=row["realized_pnl_day"],
+            unrealized_pnl=row["unrealized_pnl"], note=row["note"])
+
+    # ── 分析:按打法实战胜率(已平仓)──
+    def pattern_winrate(self) -> list[dict]:
+        rows = self._db.query_all(
+            "SELECT pattern, COUNT(*) AS closed, "
+            "SUM(CASE WHEN realized_pnl>0 THEN 1 ELSE 0 END) AS wins, "
+            "AVG(realized_pnl) AS avg_pnl FROM ops_position "
+            "WHERE status='closed' GROUP BY pattern ORDER BY closed DESC")
+        return [{"pattern": r["pattern"], "closed": r["closed"],
+                 "wins": r["wins"], "avg_pnl": r["avg_pnl"]} for r in rows]
 
     # ── row → model ──
     def _row_to_session(self, r) -> OpsSession:
