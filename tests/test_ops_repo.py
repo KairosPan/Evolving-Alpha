@@ -150,6 +150,15 @@ def test_pattern_winrate_over_closed_positions(repo):
     assert lianban["avg_pnl"] == pytest.approx((18.0 - 20.0) * 100)
 
 
+def test_qty_zero_buy_raises_and_leaves_no_position(repo):
+    with pytest.raises(ValueError):
+        repo.record_fill(OpsFill(code="600519", side="buy", price=10.0, qty=0,
+                                 filled_at=datetime(2026, 6, 23, 9, 30)))
+    # 触发一次成功提交,验证失败的建仓已被 rollback、未被顺带刷盘
+    repo.create_session(OpsSession(trade_date=date(2026, 6, 22)))
+    assert repo.open_position_for("600519") is None
+
+
 def test_full_lifecycle_on_file_db(tmp_path):
     path = tmp_path / "youzi.db"
     db = Database(path)

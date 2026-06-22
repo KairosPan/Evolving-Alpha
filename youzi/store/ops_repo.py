@@ -139,28 +139,33 @@ class OpsRepository:
             if fill.side == "sell":
                 raise ValueError(f"{fill.code} 无持仓可卖")
             pos = self._create_position(fill)
-        state = account.PositionState(
-            qty_open=pos.qty_open, avg_cost=pos.avg_cost,
-            realized_pnl=pos.realized_pnl, status=pos.status)
-        if fill.side == "buy":
-            state = account.apply_buy(state, fill.price, fill.qty, fill.fee)
-        else:
-            state = account.apply_sell(state, fill.price, fill.qty, fill.fee)
-        closed_on = fill.filled_at.date() if state.status == "closed" else None
-        self._db.execute(
-            "UPDATE ops_position SET qty_open=?, avg_cost=?, realized_pnl=?, "
-            "status=?, closed_on=? WHERE position_id=?",
-            (state.qty_open, state.avg_cost, state.realized_pnl, state.status,
-             _iso(closed_on), pos.position_id))
-        cur = self._db.execute(
-            "INSERT INTO ops_fill (decision_id, position_id, code, side, price, qty, "
-            "filled_at, fee, note) VALUES (?,?,?,?,?,?,?,?,?)",
-            (fill.decision_id, pos.position_id, fill.code, fill.side, fill.price,
-             fill.qty, _iso(fill.filled_at), fill.fee, fill.note))
-        if fill.decision_id is not None:
-            self._db.execute("UPDATE ops_decision SET status='executed' WHERE decision_id=?",
-                             (fill.decision_id,))
-        self._db.commit()
+        try:
+            state = account.PositionState(
+                qty_open=pos.qty_open, avg_cost=pos.avg_cost,
+                realized_pnl=pos.realized_pnl, status=pos.status)
+            if fill.side == "buy":
+                state = account.apply_buy(state, fill.price, fill.qty, fill.fee)
+            else:
+                state = account.apply_sell(state, fill.price, fill.qty, fill.fee)
+            closed_on = fill.filled_at.date() if state.status == "closed" else None
+            self._db.execute(
+                "UPDATE ops_position SET qty_open=?, avg_cost=?, realized_pnl=?, "
+                "status=?, closed_on=? WHERE position_id=?",
+                (state.qty_open, state.avg_cost, state.realized_pnl, state.status,
+                 _iso(closed_on), pos.position_id))
+            cur = self._db.execute(
+                "INSERT INTO ops_fill (decision_id, position_id, code, side, price, qty, "
+                "filled_at, fee, note) VALUES (?,?,?,?,?,?,?,?,?)",
+                (fill.decision_id, pos.position_id, fill.code, fill.side, fill.price,
+                 fill.qty, _iso(fill.filled_at), fill.fee, fill.note))
+            if fill.decision_id is not None:
+                self._db.execute(
+                    "UPDATE ops_decision SET status='executed' WHERE decision_id=?",
+                    (fill.decision_id,))
+            self._db.commit()
+        except Exception:
+            self._db.conn.rollback()
+            raise
         saved_fill = fill.model_copy(update={"fill_id": cur.lastrowid,
                                              "position_id": pos.position_id})
         return saved_fill, self.get_position(pos.position_id)
