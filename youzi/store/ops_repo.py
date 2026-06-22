@@ -178,7 +178,6 @@ class OpsRepository:
             "avg_cost, realized_pnl, origin_decision_id) VALUES (?,?,?,?,?,?,?,?)",
             (fill.code, pattern, _iso(fill.filled_at.date()), "open", 0, 0.0, 0.0,
              fill.decision_id))
-        self._db.commit()
         return self.get_position(cur.lastrowid)
 
     def get_position(self, position_id: int) -> OpsPosition | None:
