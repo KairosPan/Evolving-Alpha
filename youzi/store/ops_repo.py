@@ -5,7 +5,7 @@ from datetime import date as Date, datetime as DateTime
 from typing import Callable
 
 from youzi.store.db import Database
-from youzi.store.models import OpsCandidate, OpsSession
+from youzi.store.models import OpsCandidate, OpsDecision, OpsSession
 
 
 def _iso(v) -> str | None:
@@ -80,6 +80,54 @@ class OpsRepository:
             (session_id,))
         return [self._row_to_candidate(r) for r in rows]
 
+    # ── 决策命令 API ──
+    def _insert_decision(self, d: OpsDecision) -> OpsDecision:
+        created = d.created_at or self._clock()
+        cur = self._db.execute(
+            "INSERT INTO ops_decision (session_id, candidate_id, code, action, "
+            "intent_side, planned_price, planned_qty, status, note, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (d.session_id, d.candidate_id, d.code, d.action, d.intent_side,
+             d.planned_price, d.planned_qty, d.status, d.note, _iso(created)))
+        self._db.commit()
+        return d.model_copy(update={"decision_id": cur.lastrowid, "created_at": created})
+
+    def confirm_decision(self, session_id: int, candidate_id: int, *, intent_side: str,
+                         planned_price: float | None = None,
+                         planned_qty: int | None = None, note: str = "") -> OpsDecision:
+        row = self._db.query_one(
+            "SELECT code FROM ops_candidate WHERE candidate_id=?", (candidate_id,))
+        if row is None:
+            raise ValueError(f"候选 {candidate_id} 不存在")
+        return self._insert_decision(OpsDecision(
+            session_id=session_id, candidate_id=candidate_id, code=row["code"],
+            action="confirm", intent_side=intent_side, planned_price=planned_price,
+            planned_qty=planned_qty, status="planned", note=note))
+
+    def skip_candidate(self, session_id: int, candidate_id: int, *,
+                       note: str = "") -> OpsDecision:
+        row = self._db.query_one(
+            "SELECT code FROM ops_candidate WHERE candidate_id=?", (candidate_id,))
+        if row is None:
+            raise ValueError(f"候选 {candidate_id} 不存在")
+        return self._insert_decision(OpsDecision(
+            session_id=session_id, candidate_id=candidate_id, code=row["code"],
+            action="skip", status="cancelled", note=note))
+
+    def manual_add(self, session_id: int, code: str, *, intent_side: str,
+                   planned_price: float | None = None, planned_qty: int | None = None,
+                   note: str = "") -> OpsDecision:
+        return self._insert_decision(OpsDecision(
+            session_id=session_id, candidate_id=None, code=code, action="manual_add",
+            intent_side=intent_side, planned_price=planned_price,
+            planned_qty=planned_qty, status="planned", note=note))
+
+    def decisions_for(self, session_id: int) -> list[OpsDecision]:
+        rows = self._db.query_all(
+            "SELECT * FROM ops_decision WHERE session_id=? ORDER BY decision_id ASC",
+            (session_id,))
+        return [self._row_to_decision(r) for r in rows]
+
     # ── row → model ──
     def _row_to_session(self, r) -> OpsSession:
         return OpsSession(
@@ -95,3 +143,11 @@ class OpsRepository:
             confidence=r["confidence"], reason=r["reason"], plan_entry=r["plan_entry"],
             plan_stop=r["plan_stop"], plan_target=r["plan_target"], plan_note=r["plan_note"],
             raw=json.loads(r["raw"]) if r["raw"] else None)
+
+    def _row_to_decision(self, r) -> OpsDecision:
+        return OpsDecision(
+            decision_id=r["decision_id"], session_id=r["session_id"],
+            candidate_id=r["candidate_id"], code=r["code"], action=r["action"],
+            intent_side=r["intent_side"], planned_price=r["planned_price"],
+            planned_qty=r["planned_qty"], status=r["status"], note=r["note"],
+            created_at=_parse_dt(r["created_at"]))
