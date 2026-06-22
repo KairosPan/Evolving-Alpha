@@ -20,3 +20,31 @@ def test_wal_on_file_db(tmp_path):
     row = db.query_one("PRAGMA journal_mode")
     assert row[0].lower() == "wal"
     db.close()
+
+
+_OPS_TABLES = {
+    "ops_session", "ops_candidate", "ops_decision",
+    "ops_position", "ops_fill", "ops_review", "ops_account_daily",
+}
+
+
+def _table_names(db):
+    rows = db.query_all("SELECT name FROM sqlite_master WHERE type='table'")
+    return {r["name"] for r in rows}
+
+
+def test_migrate_creates_ops_tables_and_bumps_version():
+    db = Database(":memory:")
+    applied = db.migrate()
+    assert applied == 1
+    assert db.version == 1
+    assert _OPS_TABLES.issubset(_table_names(db))
+    db.close()
+
+
+def test_migrate_is_idempotent():
+    db = Database(":memory:")
+    db.migrate()
+    assert db.migrate() == 0          # 第二次无 pending
+    assert db.version == 1
+    db.close()

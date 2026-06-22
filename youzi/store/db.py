@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib.resources
+import re
 import sqlite3
 from pathlib import Path
+
+_MIG_RE = re.compile(r"^(\d+)_.*\.sql$")
 
 
 class Database:
@@ -54,3 +58,23 @@ class Database:
 
     def __bool__(self) -> bool:
         return True
+
+    def _discover_migrations(self) -> list[tuple[int, str]]:
+        out: list[tuple[int, str]] = []
+        for entry in importlib.resources.files("youzi.store.migrations").iterdir():
+            m = _MIG_RE.match(entry.name)
+            if m:
+                out.append((int(m.group(1)), entry.read_text(encoding="utf-8")))
+        return sorted(out, key=lambda t: t[0])
+
+    def migrate(self) -> int:
+        cur = self.version
+        applied = 0
+        for n, sql in self._discover_migrations():
+            if n <= cur:
+                continue
+            self._conn.executescript(sql)
+            self._conn.execute("UPDATE schema_meta SET version=?", (n,))
+            self._conn.commit()
+            applied += 1
+        return applied
