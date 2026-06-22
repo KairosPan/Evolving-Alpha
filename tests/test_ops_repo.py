@@ -148,3 +148,42 @@ def test_pattern_winrate_over_closed_positions(repo):
     lianban = next(r for r in rows if r["pattern"] == "连板")
     assert lianban["closed"] == 1 and lianban["wins"] == 0
     assert lianban["avg_pnl"] == pytest.approx((18.0 - 20.0) * 100)
+
+
+def test_full_lifecycle_on_file_db(tmp_path):
+    path = tmp_path / "youzi.db"
+    db = Database(path)
+    db.migrate()
+    repo = OpsRepository(db, clock=lambda: FIXED)
+
+    s = repo.create_session(OpsSession(trade_date=date(2026, 6, 22), regime_read="主升"))
+    [c] = repo.add_candidates(s.session_id, [
+        OpsCandidate(session_id=s.session_id, code="600519", rank=1, pattern="首板",
+                     plan_entry=10.0)])
+    d = repo.confirm_decision(s.session_id, c.candidate_id, intent_side="buy",
+                              planned_price=10.0, planned_qty=200)
+    # 分两批买入
+    repo.record_fill(OpsFill(decision_id=d.decision_id, code="600519", side="buy",
+                             price=10.0, qty=100, filled_at=datetime(2026, 6, 23, 9, 30)))
+    _, pos = repo.record_fill(OpsFill(decision_id=d.decision_id, code="600519", side="buy",
+                                      price=12.0, qty=100,
+                                      filled_at=datetime(2026, 6, 23, 13, 0)))
+    assert pos.qty_open == 200 and pos.avg_cost == pytest.approx(11.0)
+    # 部分平仓
+    _, pos = repo.record_fill(OpsFill(code="600519", side="sell", price=13.0, qty=100,
+                                      filled_at=datetime(2026, 6, 24, 14, 0)))
+    assert pos.qty_open == 100 and pos.status == "open"
+    assert pos.realized_pnl == pytest.approx((13.0 - 11.0) * 100)
+    repo.add_review(OpsReview(session_id=s.session_id, position_id=pos.position_id,
+                              body="减半仓", tags="主升兑现"))
+    repo.upsert_account_daily(AccountDaily(trade_date=date(2026, 6, 24),
+                                           realized_pnl_day=200.0))
+    db.close()
+
+    # 跨连接重开,数据仍在
+    db2 = Database(path)
+    repo2 = OpsRepository(db2)
+    assert repo2.get_session(s.session_id).regime_read == "主升"
+    assert repo2.open_position_for("600519").qty_open == 100
+    assert repo2.account_daily(date(2026, 6, 24)).realized_pnl_day == pytest.approx(200.0)
+    db2.close()
