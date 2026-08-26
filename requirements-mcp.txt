@@ -1,0 +1,4 @@
+# youzi_mcp(dsh 桥 MCP server)运行依赖。安装(venv 为 uv 所建):
+#   uv pip install --python .venv/bin/python -r requirements-mcp.txt
+# 注意:mcp 2.x 已把 FastMCP 更名为 MCPServer(youzi_mcp/market.py 按 2.x 写)。
+mcp>=2.1,<3
