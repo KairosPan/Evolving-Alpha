@@ -1,0 +1,158 @@
+{
+  "attack:crypto": {
+    "findings": [
+      {
+        "issue": "as-of 不变量写成 \"end>as_of 拒\" 是日期标签比较,continuous 市场下拦不住进行中 K 线——头号铁律正门漏水",
+        "why_it_breaks": "as_of=2026-08-23T14:30Z 时调 get_bars(crypto:BTC-USDT, end=2026-08-23):标签检查 end≤as_of.date() 通过,但该 UTC 日 K 要到 24 日 00:00Z 才收盘,交易所 API/ccxt 默认返回进行中 candle——决策用了 14:30 之后才形成的 high/low/close。现有 AsOfGuard 是 date 粒度(firewall.py 全 Date 类型),cn 靠\"收盘后才决策\"的约定侥幸成立;continuous 市场没有\"收盘后\",这条约定不存在。sessions 市场盘中 as_of(15:00 CST 之前请求当日 K)其实同坑,只是现系统日粒度循环没走到。",
+        "severity": "设计级(必须改)",
+        "fix": "框架不变量改写为:bar 合法 ⇔ bar_close_ts ≤ as_of(per-market close_ts 函数:cn 日 K close_ts=当日 15:00 CST;crypto UTC 日 K close_ts=次日 00:00Z)。AsOfGuard 升级为 tz-aware timestamp 比较;'1d' 的标签约定(label=开盘所属 UTC 日、available at label+1d)由 describe_market 声明且 server 侧强制,不留给适配器自觉。"
+      },
+      {
+        "issue": "market_snapshot(m, day) 的 \"day\" 参数在 continuous 市场语义未定义,不该进固定工具面",
+        "why_it_breaks": "\"2026-08-23 的 crypto 市场快照\"指哪一刻?日初 00:00Z、日终、还是滚动 24h?若用日 K 收盘衍生(涨幅榜等),该快照实际 available at D+1 00:00Z,同上条前视坑;若实时取(资金费率面/深度/涨幅榜),免费源只有\"现在\",没有\"D 日某刻的历史榜\"——参数写 day 而内容是 now,回测重放时同一 (m,day) 两次调用返回不同东西,PIT 纪律直接破产。\"day\" 是 sessions 投影(设计③自己承认),却被钉进了市场无关的固定签名。",
+        "severity": "设计级(必须改)",
+        "fix": "签名改 market_snapshot(m, as_of_ts);sessions 市场内部把 as_of_ts 投影为交易日(取该 session 收盘快照),cn 工具面语义不变。capability 声明里每个快照字段标注 availability 类别(close-derived / live-capture-only),live-capture-only 字段在无对应 PIT 采集时诚实 None 而非现取现返。"
+      },
+      {
+        "issue": "crypto:BTC-USDT 不带交易所+品种限定不是一条价格序列;叠加⑤的 provider fallback,在 crypto 语义下 fallback=静默换标的",
+        "why_it_breaks": "cn 三源(eastmoney/sina/tencent)是同一撮合所同一 tape 的三个镜像,fallback 是冗余;crypto 各所独立撮合:同 pair 常态差几个 bps,极端时刻(2023-03 USDC 脱锚、崩盘时 Coinbase 溢价/Kimchi premium)差 1-5%+。照搬 _fallback_ohlcv 的\"首个非空即用\":Binance 限流→切 OKX,同一序列窗口中缝出幻影收益;更糟,\"该所未上此 pair\"合法返回空→静默落到另一所,拿回的是另一个市场的价。且 BTC-USDT 现货与 BTC-USDT 永续同名不同物(有 basis/funding),命名不区分则 K 线源可能混。",
+        "severity": "设计级(必须改)",
+        "fix": "crypto 模块 v1 就把 (exchange, instrument_type) 钉进 symbol 解析——crypto:binance:BTC-USDT(:spot 默认)或 describe_market 固定声明默认所并写入 PIT manifest。框架层给⑤补一条规则:provider 链声明 mirror|distinct,同一序列只允许 mirror 型 provider 间 fallback,distinct 型跨源必须 loud 失败。另:框架永不做 quote 归一(USDT≉USD≉USDC),code 保持不透明全串。"
+      },
+      {
+        "issue": "capability 声明缺 backfillable 维度:PIT 快照对 crypto 是两类数据两种纪律,\"事后回补窗口\"的 capture 模型只覆盖一类",
+        "why_it_breaks": "K 线可事后回补(交易所历史 kline 基本不可变),capture_window 的 off-peak 补录模式成立;但 crypto 特有能力正是另一类:orderbook 深度无任何免费历史 API,open interest 历史 Binance 仅约 30 天,部分所 funding 历史有限——错过实时采集即永失。若⑤的 capability schema 本轮冻结时不含此维度,crypto 模块会对外承诺\"depth capability 存在\",而回测某历史窗时按诚实 None 原则返回 None,使用者无法区分\"provider 不支持\"和\"物理上不存在、当时没人采\"——两者的补救动作完全不同(换源 vs 起 24/7 采集器)。",
+        "severity": "设计级(必须改)",
+        "fix": "capability 声明加 backfillable: bool(+ 有限回看窗口 lookback 字段);PIT 纪律区分 backfill-capture 与 live-capture 两种落盘路径,manifest 记每份数据的 capture_ts。cn 的池数据其实也是 live-capture 型(akshare 池接口只对近端日期可靠),这个维度对现有市场同样是补真。"
+      },
+      {
+        "issue": "残 K 毒化:PITStore 的 has()→skip 幂等纪律会把进行中 candle 永久冻成 as-of 真相",
+        "why_it_breaks": "crypto 无收盘安全窗:任何时刻跑 capture,当前 UTC 日 K 都是 partial candle 且交易所照常返回。cache.py 的纪律是\"写入即视为该日 as-of 快照,不被覆盖\"+幂等续跑靠 has() 跳过——某次 capture 在 13:00Z 跑,把半根 K 写进 parquet,之后所有续跑 skip,这根残 K 成为永久历史,回测该日收益全错且无告警。cn 靠\"收盘后抓过去窗\"的操作习惯避开,crypto 没有\"收盘后\"这个时刻可依赖。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "capture 端框架级校验(不靠操作员自觉):丢弃 close_ts > capture_ts 的 bar;manifest 记每 series 的 last_complete_bar,续跑从它开始。对已有 cn 路径无行为变化(收盘后抓自然全过)。"
+      },
+      {
+        "issue": "describe_market 须钉死而当前未列全的约定:bar 时区/标签切法、volume 单位、adjust 在 crypto 的语义",
+        "why_it_breaks": "① 同一根\"2026-08-23\"日 K:Binance 按 UTC 切,部分数据商按 UTC+8 切——混采即整窗错位一天,且离线测试测不出(同 cn \"列名未核对\"陷阱的 crypto 版)。② ccxt 返回 base volume(BTC 个数),A 股 volume 是股数,读表人常当成交额用;不声明单位则跨市场特征直接错量纲。③ crypto 无复权,adjust='default' 若静默接受 'qfq' 之类值会假装做了复权;反向陷阱:cn 的 qfq 本身是\"以采集日为基准改写全史\"的非 PIT 量,统一一个 'default' 词会掩盖两市场语义差。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "describe_market 返回 machine-readable 的 {bar_tz, bar_label_convention, volume_unit, adjust: 合法值+每值语义};get_bars 对该市场未声明的 adjust 值 loud 拒(照\"诚实 None 不伪造\"原则);crypto 的 default 解析为 none。"
+      },
+      {
+        "issue": "symbol 无权威身份 + ticker 重用/迁移,按 code 单文件的 PIT 布局会把两个资产缝成一条序列",
+        "why_it_breaks": "crypto 无 ISIN:LUNA→LUNC+新 LUNA(2022-05)、FTM→S、MATIC→POL 都是同/近名不同资产或重定基。PITStore 按 `ohlcv/<code>.parquet` 单文件追加,重用/迁移后新旧历史静默拼接,中缝出现 -99% 或 ×1000 的\"收益\",oracle 打分把它当真实行情。cn 已登记 survivorship 未解,crypto 此坑更深(连\"当前成分\"的权威表都没有)。",
+        "severity": "登记债务即可",
+        "fix": "并入已规划的 D1 PIT manifest:per-series 记 (exchange, pair, first_seen, last_seen, 迁移备注);capture 端检测同 code 断档+跳变(如单日 |return|>80%)时告警不静默续。v1 只跑主流 pair 时风险可控,故登记即可。"
+      },
+      {
+        "issue": "限流/封禁模型不同:akshare 式固定节流+顺序 fallback 不适配交易所 weight/递进 ban,共享出口 IP 一损俱损",
+        "why_it_breaks": "Binance 是按 endpoint weight 的窗口限额,超限 429→继续打→418 递进封 IP(分钟到天);_retry_ak 的指数退避会在 429 后继续用同 IP 打其它 provider/市场,把限流升级成封禁,cn 采集与 crypto 采集共享出口时一起死。capture_window 的 0.3s/调 固定 sleep 对 weight 模型既浪费(1d kline 单请求可拿 1000+ 根,量级极小)又不安全(混入高 weight 端点时超限)。",
+        "severity": "登记债务即可",
+        "fix": "provider 声明限流模型(weight/window/ban 信号),capture 器 per-exchange 独立退避、识别 429/418 即全链熔断该所而非重试。v1 只取 1d kline 时请求量极小,登记债务、起深度/funding 采集器时再兑现。"
+      }
+    ]
+  },
+  "attack:us": {
+    "findings": [
+      {
+        "issue": "复权价有第二根时间轴(知识时间),as-of 防火墙只检查观测日——adjust='default' 在回测即未来函数",
+        "why_it_breaks": "qfq/auto-adjust 序列的复权因子锚定在**取数日**:今天取的序列里,as_of 之前的历史价已按 as_of 之后的分红/拆股改写(yfinance auto_adjust 同理)。invariant ③ 只拒 end>as_of,拦不住这条修订轴。现有 A 股代码的'处理'是**偶然的结构性遏制,非设计保证**:实测 universe/features/agent 决策路径零 daily_ohlcv 调用,qfq 价只进 scorer 且只以比值消费(单序列内复权基相消;跨除权日的比值恰与 A 股除权基准价涨停口径一致,fill.py 的 50bp 容差覆盖舍入——这部分现状是对的)。但泄漏通道今天就开着:若任何 feature 调 daily_ohlcv(code, end=t),GuardedSource 放行(t≤as_of)而返回的价含未来除权信息。框架把 get_bars(adjust='default') 上提为 dsh agent 决策时可调的通用工具,等于把这条未上锁的门改成正门。",
+        "severity": "设计级(必须改)",
+        "fix": "框架自定义 adjust 枚举 {raw, split, total_return},禁用'provider 默认'语义;回测/replay 路径禁止任何 fetch-time 锚定的复权——PIT 层只存 raw 价 + 公司行动事件表(ex-date/比例,yfinance .actions 可得),复权在读时按 as_of 只用 ex-date≤as_of 的事件现算。describe_market 声明的是这套枚举语义,不是转述 provider 行为。"
+      },
+      {
+        "issue": "PIT'写一次不改'与复权序列本质矛盾;cn 遗留布局无 manifest,连复权基准都无从声明",
+        "why_it_breaks": "美股每逢新分红/拆股,adjusted 全史重写:T1 抓的 code A 与 T2 抓的 code B 复权基不同,同库不可比。现有 capture_window 的 `has_ohlcv` 见文件即跳过——增量扩窗必然混复权基,且新窗日期静默缺失(scorer 记 missing)。cn 现状侥幸安全仅因单序列一次性抓+只消费比值;但 PITStore 布局里没有任何 manifest 记录 capture_ts/provider/adjust 语义,框架 ④ 让 us 模块照抄这个布局,就是把'这份 parquet 究竟是什么'变成口口相传。",
+        "severity": "设计级(必须改)",
+        "fix": "④ 增 per-market manifest(capture_ts、provider、adjust 语义、窗口区间);us 模块存 raw + dividends/splits 事件表,写一次不改在 raw+事件上才真正成立;cn 遗留布局由适配器直读时显式标注 'qfq-as-of-capture, ratio-only-safe',框架文档禁止 us 复制该模式。"
+      },
+      {
+        "issue": "as_of 钉在哪一侧未定义:server 每调用钉 wall-clock 则回测防火墙失效,client 自报则防火墙自证明",
+        "why_it_breaks": "youzi 里 AsOfGuard 的全部价值来自 as_of=回放游标(InnerLoop 推进、单调不回退)。MCP 工具面无状态:'server 侧每次调用钉 as_of' 若实现为 now(),历史窗回放中 end≤now 恒真,invariant ③ 在回测模式下是空话;若让 dsh agent 传 as_of,防火墙由被守方自己申报。这是把防火墙上提为框架不变量时丢了它的灵魂(游标所有权)。",
+        "severity": "设计级(必须改)",
+        "fix": "server 侧回放会话:open_replay(start)→session_id,游标由 server 持有并单调推进(对应 AsOfGuard.advance),回放模式下所有 get_bars/market_snapshot 从会话取 as_of;live 模式才用 now()。工具面加 mode 区分并在 describe_market/会话元数据中暴露。"
+      },
+      {
+        "issue": "日线 bar 终局性未定义:date 粒度的 end≤as_of 在盘中放行今日半根 bar",
+        "why_it_breaks": "现 AsOfGuard 比较 date,框架 as_of 是时戳但 end 是日期——'end=今天, as_of=今天 14:00 ET'语义悬空。yfinance 盘中返回今日未完成 bar(收盘前 close/high/low 都会再变),写进 PIT 即污染快照。cn 侥幸:capture 只跑历史窗/收盘后。美股加倍恶化:提前收盘日(7/3、感恩节次日、平安夜 13:00 ET)与 DST 切换使'收盘时刻'的 UTC 位置每日/每季漂移,'UTC 20:30'夏天是盘中冬天是盘后。另 yfinance 日线默认不含盘前盘后,get_bars 语义须声明 bar 的 session 覆盖范围。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "sessions 市场定义 bar-finality:day-t 日线仅在该 session 收盘时刻之后可见(交易所本地 tz、early-close 感知);get_calendar 返回 session open/close 时戳而非纯日期;day 键=交易所本地交易日,continuous 市场显式声明日界(如 UTC);describe_market 声明日线是否含扩展时段。"
+      },
+      {
+        "issue": "symbol 不是稳定主键:美股 ticker 改名/回收/重映射使 '<market>:<code>' 的 PIT 语义答错实体",
+        "why_it_breaks": "'META' 2022-06 前属 Roundhill 元宇宙 ETF,Facebook 从 FB 改名夺得;yfinance 今天把 Facebook 全史挂在 META 下——as_of=2021 问 us:META,PIT 正确答案是那只 ETF,实际返回的是当时还叫 FB 的公司。GM 破产重上市同 ticker 不同法人;退市 ticker 可回收;yfinance 对旧 ticker(FB/TWTR)直接查无此人。cn 六位码终身不回收,框架从 cn 默认继承'code 稳定'假设,按 symbol 落盘的 parquet 在 us 会把不同实体的历史缝成一条。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "describe_market 增 symbol_stability capability;us 模块以实体键(自建 id 或 CIK)存储、symbol 只作带有效期的查询别名((symbol, valid_from, valid_to) 映射表);框架层规定按 symbol 直落盘仅允许 stable-symbol 市场(cn)。"
+      },
+      {
+        "issue": "'空数据'三义冲突:退市/停牌 vs 未捕获 vs 限流被洗成同一个干净空帧,评测系统性剔除最坏尾部",
+        "why_it_breaks": "_fallback_ohlcv '全部成功但空'→带列空帧;SnapshotSource 空→scorer 记 missing→不入均值。美股持仓撞上 halted→delisted(SIVB 2023-03 型)yfinance 历史戛然而止:真实结局≈重大亏损,却被记 missing 剔除——评测均值系统性上偏,直接污染北极星对比(HCH vs Hexpert)的尺子本身。cn 同规则已存在(退市整理期缓冲了伤害),框架 ⑤ 的'缺失诚实 None'在数据层诚实、被评测层转化成幸存者偏差。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "工具面区分错误/状态分类:{UNKNOWN_SYMBOL, DELISTED(date), HALTED, NO_DATA, PROVIDER_ERROR},⑤ capability 声明含 security_status;评测侧对 missing-because-dead 按最后可得价/残值清算而非剔除(此半句属 eval 债务,但框架不给状态信号 eval 永远无从区分)。"
+      },
+      {
+        "issue": "adjust 默认钉在 provider 行为 = 版本漂移;fallback 链跨源复权因子表不一致",
+        "why_it_breaks": "yfinance auto_adjust 默认值历史上翻转过(0.2.x 起 True、'Adj Close' 列消失),钉住 provider 默认则 describe_market '说清语义'无从说起——采纳 finding 1 的自定义枚举后此条自动消解。另 eastmoney/sina/tencent 的 qfq 因子表本就不同源不同值:框架下 get_bars 按调用走 fallback,同一 symbol 不同日的调用可能落到不同源,同一根历史 bar 两次返回不同价;dsh memory 跨调用缓存即现自相矛盾(现 cn capture 整窗单次抓、单源成序列,恰好避开)。",
+        "severity": "登记债务即可",
+        "fix": "adjust 枚举落地后,fallback 只对 raw 价跨源(raw 各源应一致、可校验),复权统一由框架层事件表计算;或按 (symbol, series) 钉源并记入 manifest。"
+      },
+      {
+        "issue": "指数/ETF:成分股 universe 的幸存者偏差 + 杠杆 ETF 高频反向拆分 + 不可交易资产无 capability 区分",
+        "why_it_breaks": "us 模块若以当前指数/ETF 成分建 universe(对标 cn 三池)= 教科书级 survivorship(cn 已自知未解,美股免费源更烈:历史成分不可得);杠杆 ETF(TQQQ 类)反复反向拆分使 raw 序列大缺口,finding 1 的 raw+事件方案里 splits 表必须覆盖 ETF;指数(us:^GSPC)无 volume、不可成交,与个股共用 get_bars 需 asset_class 声明,否则 fill/scorer 类消费方无从拒绝。",
+        "severity": "登记债务即可",
+        "fix": "describe_market/capabilities 增 asset_class 与 universe 数据来源的 PIT 性声明(current-membership=survivorship-biased 须显式标注);splits 事件表覆盖 ETF;此债务登记进 us 模块 spec,不阻塞框架五件。"
+      }
+    ]
+  },
+  "attack:firewall-pit": {
+    "findings": [
+      {
+        "issue": "as_of 的设定/推进权与作用域在设计中缺位——只说'server 侧每次调用钉 as_of',没说谁钉、谁推进、多会话怎么隔离",
+        "why_it_breaks": "MCP 工具的调用方就是模型。若 as_of 经工具参数或某个可调用工具设定/推进(AsOfGuard.advance 单调不回退也救不了),回测中模型可先把游标推到窗尾、get_bars 读全窗,再回头给早期日子出'决策'——HCH vs Hexpert 全窗污染且零报错。youzi 里这被结构堵死:游标属 InnerLoop,策略只拿 frozen 快照、够不到 source;上提到 server 后模型手里第一次有了活的取数句柄,'frozen 无句柄'这层结构防御天然不存在,防火墙确实从结构保证退化为 server 代码纪律——设计必须承认并补偿这一点。另外多臂/多会话共用一个 server 进程时,单一全局 as_of 互相污染(对比机器的 factory 隔离在 server 侧没有对应物)。",
+        "severity": "设计级(必须改)",
+        "fix": "设计明写:as_of 只能由带外通道(server 启动配置/编排方专用非模型信道)设定与单调推进,MCP 工具面不得存在任何能写 as_of 的入口;as_of 按 session/run 作用域隔离;server 落 (session, as_of, tool, params) 访问日志,使'日 t 的决策未用过 as_of>t 的调用'可事后审计——结构防御没了,至少给可验证的审计面。"
+      },
+      {
+        "issue": "bar 可见性语义未定义:设计的 as_of 是带时区时间戳,现有 AsOfGuard(youzi/replay/firewall.py)与全部数据却是 Date 粒度,freq 扩展位悬空",
+        "why_it_breaks": "盘中 as_of=t 日 10:00 时,end=t 的日线请求按'end>as_of 拒'的日期比较会放行,而当日日线含收盘价——盘中看见收盘就是未来函数;直接把 Date 语义的 AsOfGuard 上提填不了这个洞。freq 一旦不是 '1d'(设计特意留了参数),日粒度守卫对分钟线完全无定义,参数注入面就此打开。",
+        "severity": "设计级(必须改)",
+        "fix": "框架不变量③改写为'bar 的 close 时刻 ≤ as_of 才可见'(sessions 市场:日 d 的日线自 d 收盘时点起可见;continuous 按 bar 边界判);v1 每市场 capability 白名单 freq(cn 仅 '1d'),白名单外 loud 拒绝,绝不静默降级为日线。"
+      },
+      {
+        "issue": "三种'缺失'被设计⑤一句'缺失诚实 None'压扁:capability 未声明 / 该日诚实无数据 / 快照残缺(capture 不完整)",
+        "why_it_breaks": "SnapshotSource(youzi/data/snapshot_source.py)对缺池抛 SnapshotMissingError,正是为了防'capture 不完整被静默当 no-trade'。cn 适配器若按设计⑤字面把该异常兜成 None/空,坏快照日在 dsh 看来就是'市场今天没数据'——整窗回测静默跑在残缺数据上,项目史上专门修过的静默丢弃型事故原样复发,且这次发生在测试覆盖最薄的新层。",
+        "severity": "设计级(必须改)",
+        "fix": "框架错误模型三分并写进工具契约:capability 未声明 → 工具不挂载/None;已声明但该日确无数据 → 诚实空结果;SnapshotMissingError/快照残缺 → 原样冒泡为 MCP error,明文禁止映射成 None 或空帧。"
+      },
+      {
+        "issue": "新包的离线可测结构未规定——as_of 钉、symbol 校验、capability gate 这些新的承重防火墙代码,恰好可能只被'dsh 实测通'式手动测试覆盖",
+        "why_it_breaks": "项目铁律是'新增任何东西必须离线可测、CI 永不触网',设计对 youzi_mcp/market 只字未提测试形态。若工具处理器焊死在 stdio transport 里、cn 模块注册/describe_market 需要实例化 AkshareSource(youzi/data/source.py:122,__init__ 即 import akshare),则 pytest 进不去 server 逻辑、无网环境连 capabilities 都答不出——466 测试之外多出一个恰好最安全敏感的盲区,防火墙回归全靠手戳。",
+        "severity": "设计级(必须改)",
+        "fix": "设计明确:工具处理器=对注入 MarketModule 注册表的纯函数,transport 壳最薄;conftest 注册内存 FakeMarketModule、进程内直调处理器(对齐 TestClient 模式);capabilities/describe_market 为模块静态元数据、不实例化 provider;live provider 惰性构造且显式 opt-in,测试可断言 never-live。"
+      },
+      {
+        "issue": "server 只继承了参数校验(end≤as_of),没有行级裁剪:GuardedSource.daily_ohlcv(youzi/data/source.py:192)只 check(end),_normalize_ohlcv 不按日期过滤返回行",
+        "why_it_breaks": "live 三源 fallback 中任一 provider 不严格尊重 end_date(或将来接入语义不同的新 provider)时,>as_of 的行直接混进返回帧。在 youzi 里无所谓——帧只到编排方手里,策略见到的是 frozen 快照;MCP 下这帧原封不动交给模型,漏一行就是一行未来函数,且完全静默、离线测试测不到(FakeSource 不会越界)。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "server 边界统一加数据侧第二道防线:所有出工具面的帧按可见性规则行级截断(bars: bar_close ≤ as_of;pools/market_snapshot: day ≤ as_of),写成框架不变量而非各市场适配器自觉;SnapshotSource 已做行过滤可作参照,live 轨必须补齐。"
+      },
+      {
+        "issue": "symbol/market 字符串无校验规则即直通路径拼接与 akshare URL 参数——模型可控输入首次直达这两处",
+        "why_it_breaks": "PITStore(youzi/data/cache.py:52-53)`root/'ohlcv'/f'{code}.parquet'` 对 code 零过滤,模型传 symbol='cn:../../harness/snap_0001' 即穿越快照根读任意 parquet(pathlib 不消毒 '..');新布局 <root>/<market>/ 的 market 段同理可穿越。live 路径上 code 直接进 akshare 请求参数(stock_zh_a_hist(symbol=code)),畸形 code 产生未定义外呼。youzi 里 code 永远源自 akshare 池并 zfill(6)、结构上可信,MCP 后这个前提消失。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "校验发生在进入任何适配器/路径拼接之前:market 必须 ∈ 注册表枚举;每市场在模块元数据里声明 symbol 正则(cn: ^\\d{6}$),'<market>:<code>' 解析后不匹配一律拒;此规则写进框架件①的定义。"
+      },
+      {
+        "issue": "market_snapshot '通用骨架'字段(全市场涨跌家数/成交额/异动)cn 没有历史取数源:现有 MarketDataSource 6 方法推不出,akshare 相应端点多为仅当日实时",
+        "why_it_breaks": "四池只覆盖涨跌停股,推不出全市场涨跌家数;OHLCV 归一列根本没有成交额(_OHLCV_RENAME 无 '成交额'/amount 映射),且快照只 capture 池内 code(capture.py)。实现者最顺手的路是拿实时端点(如 stock_market_activity_legu)应付历史 day——返回今天的数据贴上历史日期,比 None 毒得多;若只在 live 填、回测全 None,则 backtest/live 特征分布漂移,污染'同窗同尺'对比前提。任何新端点还踩 akshare 列名核对陷阱(离线测试测不到)。",
+        "severity": "实现级(v1 须处理)",
+        "fix": "v1 cn 明确不声明这些骨架 capability(诚实 None);设计加硬规则'历史 day 禁止用实时端点回填';真要这些字段走'扩 capture_window 当日采集、字段自 capture 起始日才可得'路线,新端点先过 scripts/smoke_akshare.py 核对真实列名。"
+      },
+      {
+        "issue": "adjust 默认 qfq 的 PIT 纯度:前复权因子取自查询/capture 时点而非 as_of,live 与遗留快照对同一根 bar 不可复现",
+        "why_it_breaks": "AkshareSource 三源全 adjust='qfq',用当前因子回算全史;6 月 capture 的快照与今日 live 对同一 (code, day) 的价格可以不同(期间有除权即漂),严格说价格水平还泄露未来除权事件。现有 youzi 短 horizon 相对收益下影响小,但框架把 adjust 语义承诺进 describe_market 后,'default' 的可复现性与 PIT 口径不说清,跨窗/跨源对比口径就漂。",
+        "severity": "登记债务即可",
+        "fix": "describe_market 如实声明'qfq 因子 as-of 查询/capture 时点,跨源不保证 bar 级可复现';同一对比窗内固定单一数据轨(快照优先);严格 PIT(raw+因子分离)登记为后续债务。"
+      }
+    ]
+  }
+}

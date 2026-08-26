@@ -1,0 +1,87 @@
+{
+  "per_design": [
+    {
+      "design": "A-宿主壳",
+      "scores": {
+        "invariants": 8,
+        "dsh_fidelity": 9,
+        "leverage": 5,
+        "feasibility": 8
+      },
+      "fatal_flaws": [
+        "人确认闸的'第三层(领域 API 要求显式 human_confirm 载荷)'与代码现状不符:ops_repo.py:99 的 confirm_decision 没有任何 human-confirm 证明参数,今天的'人确认'靠调用拓扑(人点 youzi_web)强制。一旦 confirm_decision/record_fill 变成 cockpit LLM 可调用的 dsh 工具,即使补上 human_confirm 载荷字段,它也是 LLM 可伪造的普通 JSON 参数——第三层是纸防线。此时人确认唯一实防线只剩 approval ask,而 ask 对自定义工具的粒度恰是设计自认的头号 [假设待验证]。ask 若降级,cockpit agent 可自主把决策批量转为 confirmed 状态。不破⑥的'绝不自动交易'(无券商接口是真结构防线),但'人确认'从结构退化为'靠一层未验证配置'。修法:confirm/record_fill 必须走 ctx.commands 人类命令通道(no model turn)或彻底不进模型工具面,而非'工具+ask'",
+        "cockpit agent 的会话言论完全逃逸领域审计面:操作员实际据以行动的是 cockpit 的二次解读(dsh session log 里),而 store/EditLog 只记 DecisionPackage 原文——'store 是唯一真相'裁决规则管住了数据回流,管不住人被未审计的 LLM 措辞引导。设计只给了 system prompt 约束(纪律不是结构)",
+        "Wave 3 删除 youzi_web 换一个官方明示随时 breaking、SESSION_FORMAT_VERSION=0 的 preview 壳,回退方案是'退回 cron+CLI'即 UI 全损——为 v0 壳杀掉已工作的 2000 行备胎过于激进;应永久保留冻结只读态而非删除",
+        "spawn-per-call 模型对长任务未经检验:decide/refine_daily 内含真实 DeepSeek 调用(30s-数分钟),dsh timeoutMs 杀进程与 UI 阻塞语义未设计;refine 被中途杀死时 Python 侧 Refiner 事务边界是否原子未论证"
+      ],
+      "best_ideas": [
+        "信封 v1 由 Python 侧定义 + golden fixtures 双侧共享,dsh breaking 只伤 <300 行 TS 桥——受灾面收缩设计是三案中最好的",
+        "失败语义三分(exit 0+ok:false=领域拒绝 / exit≠0=基建故障 / timeoutMs=超时)+ decision_id/fill_id 幂等键",
+        "'store 是唯一真相,session log 是观测投影,禁止任何代码从 session log 读数回流领域'——单向投影铁律应被任何最终设计原句继承",
+        "研究面完全不经 dsh:北极星实验与嫁接零耦合、任何波次不阻塞不污染——这是三案中唯一对北极星零风险的表述",
+        "Wave 0 侦察 spike 以 [假设待验证] 清单为门 + --dump-config 产物入库比对固化 profile",
+        "三层独立防线的论证结构(逐层论证'该层挂掉不变量仍立')值得作为所有闸的论证模板——尽管其第三层本身不实"
+      ],
+      "verdict": "六不变量无一被实质破坏:决策路径/编辑管线/immutable 守卫/领域纯净全部原封,离线可测性仅新增'壳盲区'(不覆盖领域逻辑)。真实弱点集中在人确认闸的第二三层成色(ask 未验证 + 载荷可伪造)和 cockpit 言论逃逸审计。买到的少(壳),但买到的都是真的,且随时可整体拔除。三案中唯一敢立即上生产节奏的。"
+    },
+    {
+      "design": "B-插件原生",
+      "scores": {
+        "invariants": 3,
+        "dsh_fidelity": 5,
+        "leverage": 9,
+        "feasibility": 3
+      },
+      "fatal_flaws": [
+        "不变量④被实质破坏(设计自认'字面改写'):H=(p,G,K,M)——本项目的研究对象本体——迁入一个建库 10 天、0.0.0.dev0、SESSION_FORMAT_VERSION=0 无兼容承诺的框架的持久层(storage domain)与生命周期(fiber)。dsh breaking 时受灾的不再是壳而是研究核心;'双语言双核+协议缝合'是对不变量的重新定义,不是遵守",
+        "不变量③对象级守卫消失(设计自认'Python __setattr__ 守卫无 TS 直接对等物'):补偿方案'密封种子渲染时强制并入'把最坏情形从'状态不可腐坏'降为'腐坏状态被渲染掩盖'——DB 中被越权改写的 doctrine 与渲染时并入的原件并存,状态与呈现分叉,审计者看到的 H 不再等于存储的 H。这是掩盖不是守卫",
+        "不变量①从类型结构降为配置+断言(设计自认'轻微弱化',实为中度):as_of 从 InnerLoop 单进程内的类型化单点(firewall.py:AsOfGuard 由构造方注入)变为 Python→session 配置→bridge→youzid 四跳旅程;研究模式 youzid 持有含未来日的 PIT 窗口,任何一跳配错 as_of,AsOfGuard 的 as_of 本身就是错值,再无第二道防线。'往 profile 加一个默认工具即破防'靠代码评审顶住——这正是'靠纪律不靠结构'的定义",
+        "不变量②在迁移期双实现:拒绝管线(项目评审史抓过半应用/幻觉 target/静默丢弃的地方)移植为 TS,且 TS waterfall'忘调 next() 即静默短路'是编辑闸本体的静默放行失败模式;金样测试只覆盖已写用例,历史 bug 恰恰都是金样外的",
+        "不变量⑤实质变重:Node 22+pnpm+vendored preview runtime 进 CI,keyless 测试把 dsh 本体(Node 进程)放进测试回路;风险最高的 H 编辑逻辑的测试迁到最不成熟的车道;'永不触网'从 dsh 默认(SDK 例默认 danger-full-access)靠我方显式收紧——又一处纪律替代结构",
+        "北极星被排到 W4,压在最大迁移风险(W2 H 内核 TS 化 parity 门)之后——项目中心问题被嫁接阻塞,直接违反简报'嫁接不应阻塞北极星';且迁移后 system prompt 由 dsh 组装,与迁移前 Python 路径产出不可比,历史基线作废",
+        "载荷最重的路径依赖最多未读 API:system-prompt 段贡献、storage 访问控制(哪个插件能写哪张表?未验证——Node 进程内任何插件可写任意 domain 表则②③全靠约定)、approval 事件 schema、ToolGuard 签名、preset 运行时创建全是 [假设待验证],dsh_fidelity 因此失分"
+      ],
+      "best_ideas": [
+        "表级分离 skill_def/skill_stats:把 _PATCH_FORBIDDEN 从字段黑名单升级为 schema 结构——这想法不需要 dsh,现在就该在 D 期 Python SQLite 迁移中采用",
+        "UNIQUE(trajectory_id) 幂等账本闭合 apply_credit 重复累加已知债务——同样纯 Python 可立即落地",
+        "keyless 启动断言 ctx.tools.schemas() 恰为白名单集合——任何暴露工具面的方案都该带这条验收测试",
+        "跨语言金样方法论(同种子+同编辑脚本→H JSON 哈希一致)——若未来真做双实现,这是唯一护栏的正确形态",
+        "'现有 Python 拒绝测试表即 TS 验收清单'的移植纪律",
+        "fiber 反应式装卸对 rollback→_rebind 手工债务的结构性解法——概念值得在 Python 侧模仿(factory 重建已是雏形),不必为它迁语言"
+      ],
+      "verdict": "三案中唯一把'会被自进化编辑的活体'交给 preview 框架托管的设计。④实质破坏、③对象级守卫让位于渲染掩盖、①降为配置纪律、②迁移期双实现带静默短路失败模式——按严格标准 invariants≤4。它对 dsh 的想象最完整,但载重路径上 [假设待验证] 密度也最高。作为 dsh 格式稳定(≥v1)后的远期蓝图有参考价值;作为现在的迁移计划应整体否决,只抢救其纯 Python 可用的三个想法。"
+    },
+    {
+      "design": "C-会话中心",
+      "scores": {
+        "invariants": 4,
+        "dsh_fidelity": 8,
+        "leverage": 7,
+        "feasibility": 6
+      },
+      "fatal_flaws": [
+        "波次 2 的 bash 桥是结构性破防,①②③一次全穿:给 refine 会话一个通用 bash 工具去跑 youzi-metatool CLI,等于把 shell 交给 LLM——refine 智能体可以 sqlite3 直写 harness_edit/store 绕过拒绝管线(破②)、编辑 seeds 文件(破③的源头,fold 重校验若以 seeds 为 immutable 基准则基准本身可改)、直读 PIT parquet(破①:研究模式快照目录含相对模拟日 t 的未来数据,refine 会话把未来行情编进 lesson→次日决策即前视泄漏,且这条侧信道恰好绕过 AsOfGuard——parquet 在文件系统上,不经 GuardedSource)。防火墙的原始设计是'策略够不到任意日期',bash 让它够到一切。设计自己在①的论证里给 act 会话裁到零工具,却在②的运输层开了更大的门。'最朴素有文档背书'是便利性论证不是安全论证。此洞使 invariants 按严格标准压到 4;修法明确:目标态的 TS defineTool 窄代理必须从波次 2 第一天就是唯一路径,bash 桥从设计中删除",
+        "EditGate 影子走查有自证偏差:候选 H 里已折叠进窗口 N 内那些日子的 credit/lesson(它们的已实现结果塑造了候选编辑),再用候选 H 重决策同一窗口并以同批已实现结果打分——评的是'考过的题'。不破活体路径的前视(影子决策不交易),但闸的统计效力系统性虚高,劣质编辑更易 adopt。需窗口与证据期不相交,或至少剔除塑造过该编辑的交易日",
+        "H=fold(编年史) 是全项目最侵入的核心重构(rollback 语义、SnapshotStore、所有 H 消费方),却以'波次 0 前置'名义摆在嫁接账单外——而其动机(与 dsh SessionEvent 同形)对齐的是一个 v0 明言无兼容承诺的格式。为镜像 preview 格式重塑自己的核心,是嫁接成本的隐性前置,双跑对账缓解但不消除",
+        "零工具 act 组合可行性 [假设待验证] 且 minimal 例最少带 bash+editor——若 fallback 落到'只读空 workspace 但保留默认工具',act 会话同样拿到 bash,①的'runtime 不持有任何数据源'论证对文件系统上的 PIT parquet 不成立(同波次 2 同款侧信道);温度能否按臂钉 0.0 未查明,直接威胁对比实验确定性",
+        "研究热路径塞进 Node 子进程:多窗回测=数百日×多臂,每日 act 一次 stdio JSON-RPC 子进程会话+JSONL 落盘,吞吐/成本/稳定性未预算——买到的是'带日志的重型 LLM 调用',代价是把最需要跑得多跑得快的实验环变重"
+      ],
+      "best_ideas": [
+        "SessionRunner 窄协议 + FakeSessionRunner + 'CI 永不 spawn runtime 二进制':三案中最干净的离线可测缝,Node 完全不进 youzi CI,盲区诚实定性为'旧债换债主'——任何最终设计接入 dsh 会话都该经这个协议",
+        "fold 时对 immutable 目标拒绝入账:即使编年史事件被伪造也拒绝折叠——把③从 2 层升 3 层,纯 Python 可独立采用(不必连带 H-as-fold 全套)",
+        "日志 lint:act 会话事件流断言无 oracle 标签类事件 + request/header 快照与自渲染 H 逐字比对——把防火墙从'结构+评审'升级为'结构+评审+事后机器证明',是三案中唯一新增的可机检审计面",
+        "whole-value 后像 + trajectory 幂等键把 apply_credit 事件化,顺手闭合重复累加债务",
+        "波次 1 同窗对跑(HarnessSessionPolicy 作新臂与 LLMAgentPolicy 同尺对比,先证不劣再切换)+ '北极星可在旧路径先跑'——嫁接不阻塞中心问题的正确姿势",
+        "E1 自建 OpenAI 兼容录放代理经 base_url 指入,不依赖未读的 llm-replay——对未验证官方能力一律备好我方实现的态度",
+        "映射诚实度三分法(真同构/半同构/纯修辞)——评审友好度的典范,最终设计文档应沿用此自我标注纪律"
+      ],
+      "verdict": "概念上最优雅、诚实度最高(自我标注修辞成分),⑥⑤④守得最干净(保留 B-web 录入页、CI 零 Node、领域零侵入),但波次 2 的 bash 桥一处便利性妥协让①②③在 refine 会话里同时失守——按严格标准 invariants 压到 4。此洞是可修的(TS 窄工具从第一天起),修掉后本案不变量成色接近 A;H-as-fold 与 EditGate 偏差则是需要独立论证的方法论债。"
+    }
+  ],
+  "ranking": [
+    "A-宿主壳",
+    "C-会话中心",
+    "B-插件原生"
+  ],
+  "overall": "合成建议:以 A 为底盘,C 为第二阶段增强,B 只抢救纯 Python 想法、整案冻结到 dsh 格式稳定后再议。具体拼法:(1) 底盘=A 的最小嫁接:真相全留 Python(store/EditLog/PIT),信封 v1 由 Python 定义+golden fixtures,失败语义三分,研究面完全不经 dsh,Wave 0 侦察 spike 作总门。(2) 必修 A 的一个真洞:confirm_decision/record_fill 绝不做成 cockpit LLM 可调用的工具+ask(ops_repo.py:99 现状无 human-confirm 载荷,补上也是 LLM 可伪造字段)——写路径走 ctx.commands 人类命令通道或干脆不进模型工具面,把'人确认'从'一层未验证配置'恢复为调用拓扑结构;同时 youzi_web 冻结保留而非删除。(3) 从 C 抢救四件套且与波次解耦:SessionRunner/FakeSessionRunner 协议(将来任何 act-经-dsh 的实验都走它,CI 零 Node);fold 式 immutable 重校验作③的第三层(不必连带 H-as-fold 全套重构);act 会话日志 lint(无标签事件+request/header 逐字比对);'同窗对跑先证不劣'作为任何 dsh 路径决策臂的准入门。(4) 从 B 抢救三件纯 Python 即可落地的:skill_def/skill_stats 表级分离(D 期直接采)、UNIQUE(trajectory_id) 幂等账本、schemas() 恰为白名单的 keyless 断言测试。(5) 三条红线写进最终设计的不可谈判清单:任何 dsh 会话(act/refine/cockpit)永不配 bash/fs 类通用工具(C 波次 2 的教训——PIT parquet 在文件系统上,bash 即绕过 AsOfGuard 的前视侧信道);H 与任何领域真相永不进 dsh 持久层直到 SESSION_FORMAT_VERSION≥1 且有升级路径(B 的教训);北极星实验永远可在纯 Python 路径独立跑、任何波次不得成为其前置(A 的解耦表述原句照抄)。(6) 排序敏感项:若最终设计想采 C 的 EditGate,必须先修影子走查的自证偏差(评估窗与塑造该编辑的证据期不相交),否则闸是虚设。总体判断:这次嫁接买的是壳(UI/留痕/审批/调度),不是 alpha——设计选择应最小化对研究核心的触碰,A 的'dsh 只当壳,真相不进壳'是唯一与 preview 现实相称的总纲。"
+}
