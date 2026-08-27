@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}账户{% endblock %}
+{% block topbar %}<span class="muted">账户 · 总览</span>{% endblock %}
+{% block content %}
+<div class="card">
+  <b>账户模块在建(组装序 ③)</b>
+  <p>数据源已就绪:<code>youzi/store</code> 运营 7 表(会话 / 候选 / 决策确认 / 成交 / 持仓 / 账户日快照 / 复盘)。
+     点亮后这里将展示:<b>持仓</b>与浮动盈亏、成交回填、账户净值曲线、按打法的实战胜率复盘。</p>
+  <p class="muted">录入(确认决策 / 回填成交)将走本模块表单——钱路径不经任何 agent 工具面。</p>
+</div>
+{% endblock %}

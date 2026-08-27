@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}技能库{% endblock %}
+
+{% block topbar %}
+  <form method="get" action="/strategy/skills" class="boardbar">
+    <label class="label" for="phase">相位透镜</label>
+    <select id="phase" name="phase" onchange="this.form.submit()">
+      <option value="">全库(未启用透镜)</option>
+      {% for p in phases %}
+      <option value="{{ p }}" {% if p == phase %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+    <label class="label" for="status">生命周期</label>
+    <select id="status" name="status" onchange="this.form.submit()">
+      <option value="">全部</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <span class="muted">种子 H · 战绩由 agent 实战回注</span>
+  </form>
+{% endblock %}
+
+{% block content %}
+<div class="cols">
+  <section>
+    <div class="label">技能库({{ skills | length }})</div>
+    <table class="data">
+      <thead><tr><th>技能</th><th>状态</th><th>适用相位</th><th>触发</th><th>agent 回路(战绩)</th></tr></thead>
+      <tbody>
+      {% for s in skills %}
+        <tr>
+          <td><b>{{ s.name_cn }}</b><div class="muted mono-id">{{ s.skill_id }}</div></td>
+          <td><span class="badge status-{{ s.status }}">{{ s.status }}</span></td>
+          <td class="phases-cell">{{ '通用' if s.applies_all else (s.phases | join(' · ') or '—') }}</td>
+          <td class="trigger-cell" title="买点:{{ s.entry }}&#10;卖/止:{{ s.exit_stop }}&#10;禁忌:{{ s.taboo | join(';') }}">{{ s.trigger }}</td>
+          <td class="num">
+            {% if s.stats.n %}
+              n={{ s.stats.n }} · 胜率 {{ '%.0f%%'|format(s.stats.hit_rate * 100) }} · 期望 {{ '%+.2f'|format(s.stats.expectancy) if s.stats.expectancy is not none else '—' }}
+            {% else %}<span class="muted">待实战</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section style="flex: 0 0 360px;">
+    <div class="label">agent 注入视图(相位透镜)</div>
+    {% if lens %}
+      <div class="card lens">
+        <div class="lens-head">相位 <b>{{ lens.phase }}</b> 下,agent 系统提示实际注入:</div>
+        <div class="label">技能({{ lens.skills | length }} / 预算 20)</div>
+        {% for s in lens.skills %}
+          <div class="lens-item"><b>{{ s.name_cn }}</b> <span class="muted">{{ s.skill_id }}</span></div>
+        {% endfor %}
+        <div class="label">试验位({{ lens.trials | length }} / 3)</div>
+        {% for s in lens.trials %}
+          <div class="lens-item">[试验] {{ s.name_cn }} <span class="muted">{{ s.skill_id }}</span></div>
+        {% else %}
+          <div class="muted">无孵化技能进入试验位</div>
+        {% endfor %}
+        <div class="label">记忆({{ lens.lessons | length }} / 预算 12)</div>
+        {% for l in lens.lessons %}
+          <div class="lens-item">[{{ {'principle': '口诀', 'loss': '失败', 'win': '成功'}[l.outcome] }}] {{ l.lesson | truncate(40) }}</div>
+        {% endfor %}
+        <p class="muted">此视图直接复用 select_for_prompt——所见即注入;库内有而此处无 = 预算截断或权重过滤在起作用。</p>
+      </div>
+    {% else %}
+      <div class="card"><div class="kline-empty">在顶栏选择相位,查看 agent 眼中的世界</div></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

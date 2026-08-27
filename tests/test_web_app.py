@@ -22,11 +22,12 @@ def test_shell_boots():
     assert "youzi" in r.text          # 外壳 chrome 渲染(图标轨 logo/标题)
 
 
-def test_home_redirects_to_research():
+def test_home_redirects_to_first_feature():
+    # 三大件 IA(2026-08-26):市场在首位,home 落盘面
     client = TestClient(create_app())
     r = client.get("/", follow_redirects=False)
     assert r.status_code in (302, 307)
-    assert r.headers["location"] == "/research/harness"
+    assert r.headers["location"] == "/market/board"
 
 
 def test_harness_page_renders_seed_h():
@@ -37,9 +38,11 @@ def test_harness_page_renders_seed_h():
     assert "弱转强" in r.text              # 种子真实技能 name_cn(seeds 第一个)
 
 
-def test_nav_shows_research_with_lit_subitems():
+def test_nav_three_features_with_lit_subitems():
+    # 三大件 IA:📈市场 / 📜策略(吸收研究+决策)/ 💰账户;研究子页在策略下点亮
     client = TestClient(create_app())
     r = client.get("/research/harness")
-    assert "📊" in r.text                       # 图标轨有 research
-    assert "refine 时间线" in r.text            # 子导航渲染
-    assert "/research/refine" in r.text         # FE-B 已点亮:子页有 href(非灰显占位)
+    assert "📜" in r.text and "📈" in r.text and "💰" in r.text
+    assert "精炼时间线" in r.text               # 策略子导航渲染
+    assert "/research/refine" in r.text         # 子页有 href(非灰显占位)
+    assert "进化史" in r.text                   # 灰显占位在列

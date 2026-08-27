@@ -12,7 +12,7 @@ def harness_page(request: Request):
         request,
         "harness.html",
         {"request": request, "features": request.app.state.features,
-         "active_feature_id": "research", "active_path": "/research/harness",
+         "active_feature_id": "strategy", "active_path": "/research/harness",
          "h": get_seed_harness_view()})
 
 
@@ -21,7 +21,7 @@ def _render(request, template, active_path, run):
     return request.app.state.templates.TemplateResponse(
         request, template,
         {"request": request, "features": request.app.state.features,
-         "active_feature_id": "research", "active_path": active_path, **ctx})
+         "active_feature_id": "strategy", "active_path": active_path, **ctx})
 
 
 @router.get("/research/compare")

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}周期状态机{% endblock %}
+{% block topbar %}<span class="muted">情绪周期七相位 · 点相位进入该相位的透镜(agent 每日动线:判读相位 → 按相位取打法)</span>{% endblock %}
+
+{% block content %}
+<div class="cols">
+  <section style="flex: 0 0 {{ ring.size + 40 }}px;">
+    <div class="label">相位环</div>
+    <div class="card">
+      <svg viewBox="0 0 {{ ring.size }} {{ ring.size }}" width="{{ ring.size }}" height="{{ ring.size }}" role="img" aria-label="情绪周期状态机">
+        <defs>
+          <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 8 4 L 0 8 z" fill="#b8b8cc"/>
+          </marker>
+        </defs>
+        {% for e in ring.edges %}
+        <line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}"
+              stroke="#c9c9dd" stroke-width="1.2" marker-end="url(#arrow)"/>
+        {% endfor %}
+        {% for n in ring.nodes %}
+        <a href="/strategy/skills?phase={{ n.phase }}">
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="30" class="ring-node"/>
+          <text x="{{ n.x }}" y="{{ n.y + 4 }}" text-anchor="middle" class="ring-label">{{ n.phase }}</text>
+        </a>
+        {% endfor %}
+      </svg>
+    </div>
+  </section>
+  <section>
+    <div class="label">相位说明(你看到什么 → 往哪转移)</div>
+    {% for n in ring.nodes %}
+      <div class="card">
+        <b><a href="/strategy/skills?phase={{ n.phase }}">{{ n.phase }}</a></b>
+        <p class="muted">你看到:{{ n.you_see | join(';') }}</p>
+        <p>{% for t in n.transitions %}<span class="badge phase-chip">{{ t.signal }} → {{ t.to }}</span> {% endfor %}</p>
+      </div>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

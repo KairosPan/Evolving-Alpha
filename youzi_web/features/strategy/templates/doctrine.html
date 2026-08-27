@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}纪律与心法{% endblock %}
+{% block topbar %}<span class="muted">纪律红线 = immutable-core,Refiner 永不可改;心法记忆按双衰减权重排序</span>{% endblock %}
+
+{% block content %}
+<div class="label">纪律红线({{ doctrine.immutable | length }})· Refiner 永不可改(对象级写保护)</div>
+{% for e in doctrine.immutable %}
+  <div class="card redline"><b>{{ e.section }}</b><p>{{ e.guidance }}</p></div>
+{% endfor %}
+
+<div class="cols">
+  <section>
+    <div class="label">作战 doctrine(按相位,可被精炼改写)</div>
+    {% for e in doctrine.mutable %}
+      <div class="card"><span class="badge phase-chip">{{ e.regime }}</span> <b>{{ e.section }}</b><p>{{ e.guidance }}</p></div>
+    {% endfor %}
+  </section>
+  <section>
+    <div class="label">心法记忆({{ lessons | length }})· 权重 = 双衰减</div>
+    {% for l in lessons %}
+      <div class="card">
+        <span class="badge outcome-{{ l.outcome }}">{{ {'principle': '口诀', 'loss': '失败', 'win': '成功'}[l.outcome] }}</span>
+        {% if l.named_analog %}<b>{{ l.named_analog }}</b>{% endif %}
+        <span class="weight-track"><span class="weight-bar" style="width: {{ (l.weight * 100) | round(0) }}%"></span></span>
+        <span class="muted num">{{ '%.2f'|format(l.weight) }}</span>
+        <p>{{ l.lesson }}</p>
+      </div>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}
