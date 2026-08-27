@@ -1,0 +1,20 @@
+<div class="kline-head">
+  <b>{{ payload.symbol }}</b>
+  <span class="muted">{{ payload.start }} → {{ payload.end }} · {{ payload.n }} 根</span>
+</div>
+{% if geo %}
+<svg viewBox="0 0 {{ geo.width }} {{ geo.height }}" width="100%" height="{{ geo.height }}"
+     role="img" aria-label="{{ payload.symbol }} 日K线">
+  {% for c in geo.candles %}
+  <line x1="{{ c.wick_x }}" x2="{{ c.wick_x }}" y1="{{ c.wick_y1 }}" y2="{{ c.wick_y2 }}"
+        stroke="{{ '#d43a2f' if c.up else '#1f7a50' }}" stroke-width="1"/>
+  <rect x="{{ c.x }}" y="{{ c.body_y }}" width="{{ c.w }}" height="{{ c.body_h }}"
+        fill="{{ '#d43a2f' if c.up else '#1f7a50' }}"><title>{{ c.date }}</title></rect>
+  {% endfor %}
+  <text x="{{ geo.width - 4 }}" y="12" class="kline-axis" text-anchor="end">{{ '%.2f'|format(geo.hi) }}</text>
+  <text x="{{ geo.width - 4 }}" y="{{ geo.height - 4 }}" class="kline-axis" text-anchor="end">{{ '%.2f'|format(geo.lo) }}</text>
+</svg>
+<div class="muted kline-note">{{ payload.adjust_note }}</div>
+{% else %}
+<div class="kline-empty">{{ payload.note or '无数据' }}</div>
+{% endif %}

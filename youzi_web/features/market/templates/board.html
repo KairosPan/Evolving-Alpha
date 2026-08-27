@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}盘面{% endblock %}
+
+{% block topbar %}
+  <form method="get" action="/market/board" class="boardbar">
+    <label class="label" for="day">交易日</label>
+    <select id="day" name="day" onchange="this.form.submit()">
+      {% for d in days %}
+      <option value="{{ d }}" {% if d == day %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+    <label class="label" for="mb">连板 ≥</label>
+    <select id="mb" name="min_boards" onchange="this.form.submit()">
+      {% for m in [1, 2, 3] %}
+      <option value="{{ m }}" {% if m == min_boards %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <span class="muted">数据:PIT 快照(≤所选日)</span>
+  </form>
+{% endblock %}
+
+{% block content %}
+{% if no_snapshot %}
+  <div class="card">
+    <b>未配置快照</b>
+    <p>设置环境变量 <code>YOUZI_SNAPSHOT=&lt;快照目录&gt;</code> 后重启,即可浏览盘面。
+       建库命令见 <code>scripts/capture_window.py</code>。</p>
+  </div>
+{% elif error %}
+  <div class="card"><b>快照缺该日数据</b><p>{{ error }}</p></div>
+{% else %}
+  {% set b = brief %}
+  <div class="metrics">
+    <div class="metric up"><b class="num">{{ b.limit_up_count }}</b><span>涨停</span></div>
+    <div class="metric blow"><b class="num">{{ b.blowup_count }}</b><span>炸板</span></div>
+    <div class="metric blow"><b class="num">{{ '%.1f%%'|format(b.blowup_rate * 100) if b.blowup_rate is not none else '—' }}</b><span>炸板率</span></div>
+    <div class="metric down"><b class="num">{{ b.limit_down_count }}</b><span>跌停</span></div>
+    <div class="metric up"><b class="num">{{ b.max_board_height if b.max_board_height else '—' }}</b><span>最高板</span></div>
+  </div>
+
+  <div class="cols">
+    <section style="flex: 0 0 340px;">
+      <div class="label">连板梯队</div>
+      {% if b.echelon %}
+        {% set maxc = b.echelon | map(attribute='count') | max %}
+        {% for t in b.echelon %}
+        <div class="tier">
+          <div class="tier-h num">{{ t.boards }}板</div>
+          <div class="tier-track">
+            <div class="tier-bar" style="width: {{ (t.count / maxc * 100) | round(1) }}%"></div>
+          </div>
+          <div class="tier-count num">{{ t.count }}</div>
+        </div>
+        <div class="tier-names">{{ t.names | join(' · ') }}</div>
+        {% endfor %}
+        {% set lianban = b.echelon | sum(attribute='count') %}
+        <div class="tier-foot muted">首板 {{ b.limit_up_count - lianban }} 家</div>
+      {% else %}
+        <div class="muted">今日无连板(≥2 板)</div>
+      {% endif %}
+    </section>
+    <section>
+      <div class="label">个股 K 线</div>
+      <div id="kline" class="card"><div class="kline-empty">点击下方候选行查看 K 线</div></div>
+    </section>
+  </div>
+
+  <div class="label" style="margin-top:16px">涨停候选({{ cands | length }})</div>
+  <table class="data">
+    <thead><tr>
+      <th>代码</th><th>名称</th><th>连板</th><th>行业</th>
+      <th>涨幅</th><th>封单(亿)</th><th>首封</th>
+    </tr></thead>
+    <tbody>
+    {% for c in cands %}
+      <tr class="clickable" hx-get="/market/kline?symbol={{ c.code }}&day={{ day }}"
+          hx-target="#kline" title="查看 K 线">
+        <td class="num">{{ c.code }}</td>
+        <td>{{ c.name }}</td>
+        <td class="num up-text">{{ c.boards if c.boards is not none else '—' }}</td>
+        <td>{{ c.industry or '—' }}</td>
+        <td class="num">{{ '%.2f%%'|format(c.pct) if c.pct is not none else '—' }}</td>
+        <td class="num">{{ '%.2f'|format(c.seal_amount / 1e8) if c.seal_amount is not none else '—' }}</td>
+        <td class="num">{{ c.first_seal_time[:2] ~ ':' ~ c.first_seal_time[2:4] if c.first_seal_time else '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">该筛选下无候选</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

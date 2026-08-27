@@ -32,3 +32,32 @@ table.data td { padding: 7px 10px; border-bottom: 1px solid #f1f1f7; }
 .cols > section { flex: 1; min-width: 0; }
 .card { background: #fff; border: 1px solid #e8e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.55; }
 .card p { margin: 4px 0 0; color: #444; }
+
+/* ── 市场模块(红涨绿跌 = A 股语义) ─────────────────────────── */
+.num { font-variant-numeric: tabular-nums; }
+.boardbar { display: flex; align-items: center; gap: 8px; }
+.boardbar .label { margin: 0; }
+.boardbar select { font-size: 13px; padding: 3px 6px; border: 1px solid #d9d9e6; border-radius: 6px; background: #fff; }
+.metrics { display: flex; gap: 10px; flex-wrap: wrap; }
+.metric { background: #fff; border: 1px solid #e8e8f0; border-radius: 8px; padding: 9px 16px 7px; min-width: 92px; }
+.metric b { display: block; font-size: 21px; line-height: 1.2; }
+.metric span { font-size: 11px; color: #889; }
+.metric.up b { color: #d43a2f; }
+.metric.down b { color: #1f7a50; }
+.metric.blow b { color: #b8860b; }
+.up-text { color: #d43a2f; }
+.down-text { color: #1f7a50; }
+.tier { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.tier-h { flex: 0 0 44px; text-align: right; font-weight: 700; color: #d43a2f; }
+.tier-track { flex: 1; background: #eeeef5; border-radius: 4px; height: 18px; overflow: hidden; }
+.tier-bar { height: 100%; background: linear-gradient(90deg, #d43a2f, #e8746b); border-radius: 4px; min-width: 14px; }
+.tier-count { flex: 0 0 28px; color: #556; font-size: 12px; }
+.tier-names { margin: 2px 0 0 52px; font-size: 12px; color: #667; }
+.tier-foot { margin: 10px 0 0 52px; font-size: 12px; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: #f4f4fb; }
+tr.clickable:focus-visible td { outline: 2px solid #2a2a3f; }
+.kline-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+.kline-axis { font-size: 10px; fill: #889; }
+.kline-note { font-size: 11px; margin-top: 4px; }
+.kline-empty { color: #889; font-size: 13px; padding: 28px 0; text-align: center; }
