@@ -144,5 +144,6 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")       # 读写并发(单写多读),崩溃安全
     conn.execute("PRAGMA foreign_keys=ON")        # 外键默认关闭,必须显式开
+    conn.execute("PRAGMA busy_timeout=5000")      # 写锁竞争时等待,而非立刻 SQLITE_BUSY→500
     init_schema(conn)
     return conn

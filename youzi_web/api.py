@@ -20,12 +20,12 @@ from datetime import date as Date
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from youzi.application.live_decision import LiveDecisionService, StrategyNotFoundError
-from youzi.store.account_repo import AccountRepo
+from youzi.store.account_repo import AccountRepo, ensure_full_ts
 from youzi.store.agent_run_repo import AgentRunRepository
 from youzi.store.db import connect
 from youzi.store.errors import DuplicateError, IllegalTransitionError, NotFoundError
@@ -126,11 +126,21 @@ def adopt_agent_run(run_id: str, svc: LiveDecisionService = Service) -> dict:
     return _session_json(svc.adopt(run_id))
 
 
+def _validated_as_of(as_of: str | None) -> str | None:
+    """`as_of` 必须是含时间部分的完整 ISO datetime,日期粒度会静默错账 → 422。"""
+    if as_of is None:
+        return None
+    try:
+        return ensure_full_ts(as_of, "as_of")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
 @router.get("/accounts/current")
 def account_current(account_id: str = Query(min_length=1), as_of: str | None = None,
                     svc: LiveDecisionService = Service) -> dict:
     """账户现况(现金/持仓/异常)。全部由 fills 折叠而来,非第二份权威表。"""
-    view = svc.account_view(account_id, as_of=as_of)
+    view = svc.account_view(account_id, as_of=_validated_as_of(as_of))
     d = view.model_dump(mode="json")
     d["is_absolute_cash"] = view.is_absolute_cash
     return d
@@ -139,7 +149,7 @@ def account_current(account_id: str = Query(min_length=1), as_of: str | None = N
 @router.get("/accounts/positions")
 def account_positions(account_id: str = Query(min_length=1), as_of: str | None = None,
                       svc: LiveDecisionService = Service) -> dict:
-    view = svc.account_view(account_id, as_of=as_of)
+    view = svc.account_view(account_id, as_of=_validated_as_of(as_of))
     return {"account_id": account_id, "as_of": as_of,
             "positions": [p.model_dump(mode="json") for p in view.positions],
             "anomalies": list(view.anomalies)}

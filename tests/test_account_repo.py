@@ -164,3 +164,31 @@ def test_baseline_positions_warn_about_missing_cost(repo):
     view = repo.fold("A")
     assert view.positions[0].qty == 500
     assert any("无成本价" in a for a in view.anomalies)   # 诚实提示,不臆造成本
+
+
+# ── 时间参数纪律 ─────────────────────────────────────────────────────────
+def test_date_only_time_params_are_rejected(repo):
+    """日期粒度的时间参数会静默排除/重放当日成交 → 一律大声拒绝(不猜语义)。"""
+    _buy(repo, "b1")
+    with pytest.raises(ValueError):
+        repo.fold("A", as_of="2024-06-26")
+    with pytest.raises(ValueError):
+        repo.fills("A", since="2024-06-26")
+    with pytest.raises(ValueError):
+        repo.fills("A", until="not-a-date")
+    with pytest.raises(ValueError):
+        repo.put_snapshot(account_id="A", as_of="2024-06-26", cash=1.0,
+                          positions={}, source="manual")
+
+
+def test_backfill_after_baseline_is_flagged(repo):
+    """基线之后补录更早交易日的成交 → 重复计账嫌疑,登记 anomaly 不静默。"""
+    repo.put_snapshot(account_id="A", as_of="2024-06-25T15:00:00", cash=100000.0,
+                      positions={}, source="broker")
+    repo.record_fill(operation_id="old1", account_id="A", trade_date=date(2024, 6, 20),
+                     code="600000", side="buy", price=10.0, qty=100)
+    view = repo.fold("A")
+    assert any("补录" in a for a in view.anomalies)
+    _buy(repo, "new1")                        # trade_date=6/26 ≥ 基线日 → 不该误报
+    view2 = repo.fold("A")
+    assert sum("补录" in a for a in view2.anomalies) == 1

@@ -74,3 +74,9 @@ def test_agent_run_status_check_constraint(tmp_path):
         conn.execute(
             "INSERT INTO agent_run (run_id, trade_date, strategy_id, status, created_at)"
             " VALUES ('r','2024-06-26','s','bogus','t')")
+
+
+def test_busy_timeout_is_set(tmp_path):
+    """写锁竞争要等待重试,不能立刻 SQLITE_BUSY 炸给上层。"""
+    conn = connect(tmp_path / "t.db")
+    assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000

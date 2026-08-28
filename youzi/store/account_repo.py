@@ -107,6 +107,25 @@ def _row_to_fill(row: sqlite3.Row) -> Fill:
     return Fill.model_validate({k: row[k] for k in _FILL_COLS})
 
 
+def ensure_full_ts(value: str, param: str) -> str:
+    """时间参数必须是**含时间部分**的完整 ISO 串,否则大声拒绝。
+
+    fills 的时间过滤靠字符串字典序与微秒级 `created_at` 比较:只给日期
+    ("2026-08-27")时,当日一切 "2026-08-27T…" 都比它**大**——作 until 会把
+    当日成交静默排除,作基线 as_of 会把已计入基线的当日成交重放叠加。
+    这类参数错是错账源头,不能靠约定,必须在入口拒绝。
+    """
+    try:
+        DateTime.fromisoformat(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{param} 不是合法 ISO 时间串: {value!r}") from e
+    if "T" not in value:
+        raise ValueError(
+            f"{param} 需为含时间部分的完整 ISO datetime(如 2026-08-27T15:00:00),"
+            f"收到日期粒度 {value!r}——字典序过滤会静默排除/重放当日成交")
+    return value
+
+
 class AccountRepo:
     """fill / account_snapshot 的纯仓储 + 折叠查询。"""
 
@@ -170,10 +189,10 @@ class AccountRepo:
         args: list = [account_id]
         if since is not None:
             sql += " AND created_at > ?"
-            args.append(since)
+            args.append(ensure_full_ts(since, "since"))
         if until is not None:
             sql += " AND created_at <= ?"
-            args.append(until)
+            args.append(ensure_full_ts(until, "until"))
         sql += " ORDER BY rowid"
         return [_row_to_fill(r) for r in self._conn.execute(sql, args).fetchall()]
 
@@ -181,6 +200,7 @@ class AccountRepo:
     def put_snapshot(self, *, account_id: str, as_of: str, cash: float,
                      positions: dict[str, int], source: str = "") -> AccountSnapshotRow:
         """写(或按 (account_id, as_of) 覆盖)一份账户快照。"""
+        ensure_full_ts(as_of, "as_of")
         with self._conn:
             self._conn.execute(
                 "INSERT INTO account_snapshot (account_id, as_of, cash, positions_json,"
@@ -209,7 +229,7 @@ class AccountRepo:
         args: list = [account_id, *sorted(BASELINE_SOURCES)]
         if as_of is not None:
             sql += " AND as_of <= ?"
-            args.append(as_of)
+            args.append(ensure_full_ts(as_of, "as_of"))
         sql += " ORDER BY as_of DESC LIMIT 1"
         row = self._conn.execute(sql, args).fetchone()
         return _snapshot_row(row) if row else None
@@ -229,6 +249,8 @@ class AccountRepo:
         超卖(卖出量 > 当前持仓)**照实施加**(qty 可为负)并登记 anomaly——
         钳零会把错账藏起来,负持仓是刺眼的、能被人看见并修正的。
         """
+        if as_of is not None:
+            ensure_full_ts(as_of, "as_of")
         base = self.latest_baseline(account_id, as_of)
         cash = base.cash if base else 0.0
         qty: dict[str, int] = dict(base.positions) if base else {}
@@ -244,6 +266,18 @@ class AccountRepo:
                 "其 avg_cost 以 0 计,勿据此算浮盈")
 
         rows = self.fills(account_id, since=(base.as_of if base else None), until=as_of)
+        if base:
+            # fills 的时间轴是登记时刻(created_at),基线之后**补录**的更早交易
+            # (trade_date 早于基线日)若已计入基线,会被重复叠加——查不出对错,
+            # 但查得出嫌疑:诚实登记,让人核对,不静默吞掉
+            backfilled = [f for f in rows if f.trade_date.isoformat() < base.as_of[:10]]
+            if backfilled:
+                shown = ", ".join(f.operation_id for f in backfilled[:3])
+                more = "……" if len(backfilled) > 3 else ""
+                anomalies.append(
+                    f"基线({base.as_of})之后补录了 {len(backfilled)} 笔交易日早于基线的成交"
+                    f"(operation_id: {shown}{more});若基线已含这些交易,"
+                    "现金/持仓会重复计账,请核对流水或重打基线")
         for f in rows:
             cash += f.cash_delta()
             held = qty.get(f.code, 0)
