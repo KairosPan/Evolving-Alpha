@@ -60,7 +60,7 @@ def _run(client, strategy="seed", account="A"):
 def test_existing_pages_still_work(client):
     """API 挂上去不能破坏 FE 外壳(单向依赖、零回归)。"""
     assert client.get("/research/harness").status_code == 200
-    assert client.get("/", follow_redirects=False).headers["location"] == "/research/harness"
+    assert client.get("/", follow_redirects=False).headers["location"] == "/market/board"
 
 
 def test_create_and_get_agent_run(client):
@@ -170,3 +170,11 @@ def test_failed_run_is_recorded_and_cannot_be_adopted():
     assert r.status_code == 201 and r.json()["status"] == "failed"
     assert "上游 502" in r.json()["error"]
     assert client.post(f"/api/agent-runs/{r.json()['run_id']}/adopt").status_code == 409
+
+
+def test_accounts_date_only_as_of_is_422(client):
+    """日期粒度 as_of 会静默漏掉当日成交 → 参数错,422 拒绝而非错答。"""
+    for path in ("/api/accounts/current", "/api/accounts/positions"):
+        r = client.get(path, params={"account_id": "A", "as_of": "2024-06-26"})
+        assert r.status_code == 422
+        assert "完整 ISO" in r.json()["detail"]
