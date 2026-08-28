@@ -23,3 +23,8 @@ checkpoints/
 
 # run-store(compare 运行结果落盘,YOUZI_RUNS_DIR 默认目录)
 runs/
+
+# live 事务库(agent 运行/建议单/成交,YOUZI_LIVE_DB 默认路径;含账户实盘数据)
+live.db
+live.db-wal
+live.db-shm
