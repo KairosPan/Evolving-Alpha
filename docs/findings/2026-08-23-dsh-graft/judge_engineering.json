@@ -1,0 +1,84 @@
+{
+  "overall": "合成建议(以 C 为骨、A 为壳、B 只拆零件):① 研究环采 C——W0 纯 Python 的 H 事件化(whole-value+fold+trajectory 幂等键,与既定 D 期同向,零 dsh 依赖,双跑对账+flag 回退)先行;act 外包做成\"新增一臂与 LLMAgentPolicy 同窗对跑、先证不劣再切换\",北极星实验在旧路径不被阻塞。② 运营壳采 A——TS 薄桥(<300 行、零业务)+ spawn 短命 Python 子进程 + 信封 v1(youzi 定义契约、golden fixtures 双侧共享)+ 三层独立的人确认防线 + \"store 唯一真相、session log 仅观测投影、禁止从日志回流数据\"的裁决规则;但把 A 的 Wave2\"B-web 录入改道 dsh\"降级为条件项(approval ask 粒度 Wave0 实证通过才做,否则保留 FastAPI 录入页,即 C/B 的立场)。③ 整体拒绝 B 的 TS harness-kernel 与 H 真相迁移(双语言双核+拒绝管线移植+parity 门不可判定,且在北极星未答前就把 refine 迁走是优先级倒置),但抢救其零件:skill_def/skill_stats 表级分离(把 _PATCH_FORBIDDEN 从字段黑名单升级为 schema 结构,可直接落回 Python SQLite D 期)、UNIQUE(trajectory_id) 幂等账本、服务撤回→fiber PENDING 的 fail-closed 失败语义、每臂独立进程+独立 profile/session_root 的硬隔离、现有拒绝测试表作任何移植的验收清单。④ 统一前置:合并三案的 [假设待验证] 为一张 Wave0 侦察清单(approval ask 粒度、schedule API、零工具组合可行性、ctx.commands、per-臂温度控制、system prompt 注入面),任何后续波次以实测答案为门;dsh 版本钉 commit,唯一边界包(youzi_dsh)承载全部 dsh 接触面。⑤ 关键补丁:温度问题(SDK config 无 temperature 字段)可用 C 的录放代理顺手解——OpenAI 兼容 MITM 代理在转发时改写 temperature=0.0,同时把改写行为入日志以免污染 request/header 审计比对。⑥ 保留 C 的\"真同构/半同构/纯修辞\"标注法作为最终设计文档的写作规范——它是对抗 preview 期 API 漂移最便宜的免疫系统。",
+  "per_design": [
+    {
+      "design": "A-宿主壳",
+      "scores": {
+        "invariants": 9,
+        "dsh_fidelity": 9,
+        "leverage": 6,
+        "feasibility": 8.5
+      },
+      "fatal_flaws": [
+        "无致命伤,但有一处战略软肋:Wave2 把'钱路径'(confirm_decision/record_fill 录入)改道到一个 developer preview 产品上,而其成色系于 approval ask 粒度这个官方未写、自己也承认未查明的能力——dsh 大版本 breaking 时运营写路径瘫痪,回退=重启 B-web spec(成本=整个原计划),这不是零成本回退而是全额返工",
+        "驾驶舱一切交互经 cockpit LLM 中转:双份 LLM 成本/延迟,且 DecisionPackage 由 cockpit agent 二次转述的幻觉风险只有 prompt 级对策(风险6自认);ctx.commands 免 LLM 通道未验证,若不可用则连 /positions 查询都烧 token",
+        "杠杆自我设限:dsh 的会话溯源/replay/fork 完全不覆盖研究环与决策 LLM 调用——嫁接后项目的核心活动(北极星实验)在 dsh 视野之外,买到的只是蓝图 §5 里本来就标记为'可替代自由度'的壳"
+      ],
+      "best_ideas": [
+        "信封 v1:版本化 JSON 契约由 youzi 侧定义、TS 桥只消费、golden fixtures 双侧共享——把 dsh 漂移的受灾面钉死在 <300 行 TS 内,这是三案中最好的抗漂移结构",
+        "Wave 0 侦察 spike:把全部 [假设待验证] 列成清单、1-2 天实测、可整体丢弃、后续波次以结论为门——应提升为全局方法论",
+        "`--dump-config` 产物入库比对:把'profile 配置正确性'从口头纪律变成可 diff 的入库工件",
+        "不变量⑥的三层独立论证(全系统无券商接口/approval ask/领域 API 强制 human_confirm 载荷),dsh 整层挂掉不破铁律",
+        "spawn 短命子进程 + 无常驻服务 + 状态全在 SQLite:失败语义=干净进程边界,无半死状态",
+        "'store 唯一真相、dsh session 是观测投影、禁止任何代码从 session log 读数回流领域'的裁决规则"
+      ],
+      "verdict": "最诚实、引用最干净的设计:每条 dsh 能力都有笔记出处或明确标注待验证,六条不变量论证扎实,回退路径真实;代价是自认放弃 dsh 深层能力,买到的只是壳——但这个壳恰是项目原计划要自造的部分,作为运营面方案成立。"
+    },
+    {
+      "design": "B-插件原生",
+      "scores": {
+        "invariants": 4.5,
+        "dsh_fidelity": 6,
+        "leverage": 8.5,
+        "feasibility": 3
+      },
+      "fatal_flaws": [
+        "H 真相迁入 dsh storage domain 直接违背研究笔记自己的结论('preview 期不要把 youzi 真相源搬进 dsh')——SESSION_FORMAT_VERSION=0、storage domain 迁移路径未知、'SQLite 后端拒绝旧 schema 无迁移'有明文警告;夜间 JSON 导出逃生舱承认了风险却没消除它:项目皇冠(自进化的活体 H)押在 0.0.0.dev0 的地基上",
+        "拒绝管线(不变量②③最密集的代码)移植为 TS + 种子 schema 双语言镜像 + 跨语言金样测试:对单人纯 Python 项目是不可承受的双实现税;且 W2 的'双跑影子验证 diff 产出 H'作为 parity 门不可判定——refine 是 LLM 驱动的,两套不同 harness 的 prompt 装配必然导致输出分歧,这个回退门形同虚设,迁移会卡死在中间态",
+        "不变量③④被自认降级:immutable-core 失去 __setattr__ 守卫、只剩'渲染时强制并入'的钳制;'领域核心一包纯净'变成'双语言双核协议缝合'——设计诚实标价,但价就是不可接受",
+        "迁移优先级倒置:北极星(HCH vs Hexpert)尚未回答,W2 就把 refine 半环迁 TS——若自进化被证无 alpha(风险7自己预见了),整个 harness-kernel 投资归零;该实验本应是嫁接深度的前置门,不是 W4 的收尾",
+        "'_rebind 债务被结构性解决'是未标注的能力过度外推:domain/changed 是进程内事件、fiber 自动重载是插件级语义,把它们直接等同于'H 版本切换后所有消费方自动换绑'缺乏文档支撑且未标 [假设待验证]——这是全设计唯一接近臆造的引用(非虚构 API 名,是虚构语义迁移,故 fidelity 记 6 不触 ≤4 线);另 system-prompt 段贡献、schedule、approval 事件、preset 运行时创建四个 load-bearing 机制全是 [假设待验证],假设密度远超另两案"
+      ],
+      "best_ideas": [
+        "skill_def 与 skill_stats 表级物理分离:把 _PATCH_FORBIDDEN 从字段黑名单升级为 schema 结构性保证——无需 TS,可直接落回 Python SQLite D 期设计,是本案最值得抢救的想法",
+        "UNIQUE(trajectory_id) 幂等账本闭合 apply_credit 重复累加债务(C 案也有,合并采纳)",
+        "youzid 掉线→bridge 撤回服务→依赖工具 fiber 转 PENDING 的 fail-closed 失败语义:'依赖缺失是常态而非异常'哲学的正确应用",
+        "研究臂隔离=每臂独立 runtime 进程+独立 profile/session_root(拒绝进程内 isolate realm 的清醒判断)",
+        "现有 Python 拒绝管线测试表 = 任何未来移植的现成验收清单",
+        "keyless 启动断言 ctx.tools.schemas() 恰为白名单的测试模式",
+        "评测时钟与交易日游标以 Python 为准、'评测尺是裁判永不外包'的原则"
+      ],
+      "verdict": "杠杆最高、对 dsh 理解最深,但工程上是把 495 测试全绿的单语言核心肢解成双语言双核去迎合一个 10 天大的 preview 运行时——假设密度、双实现税、不可判定的 parity 门、优先级倒置四罪并罚,整案不可采,拆零件抢救。"
+    },
+    {
+      "design": "C-会话中心",
+      "scores": {
+        "invariants": 8.5,
+        "dsh_fidelity": 9,
+        "leverage": 7.5,
+        "feasibility": 7
+      },
+      "fatal_flaws": [
+        "无致命伤,三处真实软肋:(1) W0 的 H 事件化(fold/whole-value/fork@seq)比既定 D 期'拆两张表'的 spec 范围大得多,触及 HarnessManager/rollback/rebind 全链——虽纯 Python、双跑对账、可回退,但这是打着对齐旗号的实质性重构,须按独立阶段走 spec/plan 流程而非搭嫁接便车",
+        "(2) 温度控制是研究臂的阿喀琉斯之踵:smoke_compare 依赖 temp=0.0,SDK config dataclass 无 temperature 字段、cordis 按臂设温未查明——设计诚实标为开放问题,但若证伪则 W1 的 dsh 臂在研究面直接失格(缓解:录放代理可在转发时改写 temperature,见 overall)",
+        "(3) W2 的 bash+CLI 桥让'meta-tool 穿 waterfall ask 闸'的说法打折:pre-execute 拦的是 bash 工具整体而非单个 meta-tool 算子,per-op ask 粒度需自写参数检查 policy——数据流③的表述略有夸大,目标态(defineTool 代理)才真正兑现"
+      ],
+      "best_ideas": [
+        "'真同构/半同构/纯修辞'三级诚实标注法:对每条 youzi↔dsh 映射自我审计修辞成分,是三案中唯一主动防止自我欺骗的方法论,应定为最终设计文档规范",
+        "OpenAI 兼容录放代理(经 DEEPSEEK_BASE_URL 指入):E1 缓存/离线确定性与 harness 选型解耦,无论嫁接成败都白赚一件基建",
+        "SessionRunner 窄协议 + FakeSessionRunner(录制 JSONL fixture 带版本戳):CI 永不 spawn runtime 二进制,离线优先的正确续写",
+        "日志 lint:act 会话断言无 oracle 标签事件 + request/header 快照与自渲染 H 逐字比对——防火墙首次获得机器可执行的事后审计面",
+        "'新臂同窗对跑、先证不劣再切换'的迁移模式:每一波都是加法不是替换,北极星实验永不被阻塞",
+        "W0 纯 Python 事件化(SessionEvent 同形 schema)保留格式稳定后真相合流的期权,而不预付其风险",
+        "EditGate=fork+影子走查+成本封顶(N 日重决策预算化),A2 债务的最短落地路径",
+        "refine 失败→当日跳过(H 不变)、act 失败→空仓兜底:失败语义与既有'全拒不崩'完全同构"
+      ],
+      "verdict": "对 dsh 引用最严谨(自带修辞审计)、与项目既定路线(D 期/A2/E1)咬合最深、每波可跑可退且北极星永不被阻塞的设计;它买的是研究环的审计面与会话运行时而非壳,代价是运营 UI 收益基本放弃——与 A 恰好互补,应作为合成的主骨架。"
+    }
+  ],
+  "ranking": [
+    "C-会话中心",
+    "A-宿主壳",
+    "B-插件原生"
+  ]
+}

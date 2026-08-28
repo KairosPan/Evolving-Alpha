@@ -12,4 +12,4 @@ def cockpit_page(request: Request, run: str | None = None, day: str | None = Non
     return request.app.state.templates.TemplateResponse(
         request, "cockpit.html",
         {"request": request, "features": request.app.state.features,
-         "active_feature_id": "decision", "active_path": "/decision/cockpit", **ctx})
+         "active_feature_id": "strategy", "active_path": "/decision/cockpit", **ctx})

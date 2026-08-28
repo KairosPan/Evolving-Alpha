@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}账户{% endblock %}
+{% block topbar %}<span class="muted">账户 · 总览</span>{% endblock %}
+{% block content %}
+<div class="card">
+  <b>账户模块在建(组装序 ③)</b>
+  <p>数据源已就绪:<code>live.db</code>(agent 运行 / 建议单 / 决策确认 / 成交流水),
+     持仓与现金 = <b>折叠成交流水</b>的查询结果,不落第二份权威表;JSON API 已通:
+     <code>/api/accounts/current</code> · <code>/api/accounts/positions</code> · <code>/api/accounts/fills</code>。
+     点亮后这里将展示:<b>持仓</b>与浮动盈亏、成交回填表单、账户净值曲线。</p>
+  <p class="muted">录入(确认决策 / 回填成交)将走本模块表单——钱路径不经任何 agent 工具面。</p>
+</div>
+{% endblock %}
