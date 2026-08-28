@@ -18,16 +18,16 @@
 
 ## 0.0 执行日志与当前状态
 
-### 当前状态快照(截至 2026-08-26 晚)
+### 当前状态快照(截至 2026-08-28)
 
 - **dsh `0.1.1-rc.2` 运行中**:`~/Desktop/self-evolve/dsh-playground` 起 `dsh web`(:3080,nohup 独立进程)。DSH_HOME=`~/.dsh`;web profile 默认 `workspace-write` + `approval: ask`;session 落盘 `~/.dsh/sessions`(JSONL)。重启命令:`cd ~/Desktop/self-evolve/dsh-playground && npx -y @deepseek-ai/dsh web`。
 - **桥已上线,零 TS**:web profile(`~/.dsh/profiles/web/cordis.patch.yml`)经 `dsh-mcp-client` 挂 `youzi-market` 桥 = **repo 内纯 Python MCP server**(`.venv/bin/python -m youzi_mcp.market`,env `YOUZI_SNAPSHOT`+`PYTHONPATH`)。工具面:`mcp__youzi-market__{ping, market_brief, candidates, get_bars}`,真 PIT 快照数据(2026-05-26..06-12,14 交易日)经 `GuardedSource(as_of=day)`。**market 参数只留槽位**:cn 默认,us/crypto 诚实报"尚未接入";symbol 支持 `cn:` 前缀。
-- **仓库增量(未 commit)**:`youzi_mcp/{__init__,market_core,market}.py`(纯逻辑层零 MCP 依赖 + 最薄壳)+ `tests/test_mcp_market.py`;**502 测试全绿(495+7),youzi 核心零改动**;repo venv 加装 `mcp` 2.1.1(venv 是 uv 的:`uv pip install --python .venv/bin/python mcp`)。headless E2E 四项全通(真简报/候选/K 线 + crypto 槽位报错)。
+- **仓库前沿 `main`=`134c0b6`(2026-08-28 merge PR #5,本地与 origin 同步,584 测试全绿)**:`youzi_mcp/` 桥 + 市场📈/策略📜/账户💰三大件 IA + **live 决策后端**(live.db 6 表 + `youzi/application/live_decision.py` 薄编排 + `youzi_web/api.py` 8 端点)全部在 main;**6 月 SQLite 运营库(4af6b2c 七表)已退役**,账务纪律统一为 fill 只增不改、持仓/现金=fold(fills) 纯派生、operation_id 幂等。repo venv 含 `mcp` 2.1.1(uv 装:`uv pip install --python .venv/bin/python mcp`)。headless E2E 四项全通(真简报/候选/K 线 + crypto 槽位报错)。
 - **§0.3 即刻清单(纯 Python 四项)仍挂起**(08-25 用户决策:dsh 先行);§0.4 冷冻库不变。
 
 ### 下一步候选
 
-① 继续挂固定插件:`youzi-ops`(store 持仓/账户/复盘只读)/ `youzi-harness`(H 技能/记忆/doctrine 只读投影);② commit `youzi_mcp/` 批次;③ W0 余 3 项(零工具组合/温度/spawn 沙箱辖域)按需补测;④ B-web 薄录入页(钱路径,按 §0.2 裁决);⑤ 灵活层 `youzi-research`/`youzi-lab`(HMR 热插拔,孵化位)。
+① **③ 账户模块前端**:表单接 `/api/accounts/fills` + 补 `confirm` Web 端点(钱路径只走人手,live.db 后端已就位);② **④ live 串联**:选日 → `POST /api/agent-runs` → adopt → 驾驶舱展示建议单;③ PR #5 留债:`build_service` 缺 key 500→503、连接 yield-close、live 侧 `sentiment_norm` 回灌、`/api/market/snapshot` 与 market_core 读模型统一;④ 继续挂固定插件 `youzi-ops`(改读 live.db)/ `youzi-harness`(harness_core 已有,包 MCP 壳即可);⑤ W0 余 3 项(零工具组合/温度/spawn 沙箱辖域)按需补测;⑥ 灵活层 `youzi-research`/`youzi-lab`(HMR 热插拔,孵化位)。
 
 ### 执行日志
 
@@ -36,7 +36,9 @@
 | 08-23 | 13-agent workflow(dsh 尽调 ×6 + 项目重读 ×2 + 三立场设计 + 双对抗评审)→ 合成稿(Part I) |
 | 08-24 | 用户:"很看重 everything-is-a-plugin 原则" → 原则辨析(§0.1:原则原生落地,不为运行时肢解核心) |
 | 08-25 | 冗余审计(§0.2)→ 提案 v2(§0.3/0.4);用户决策:**即刻清单挂起,dsh 先行**;dsh 装好跑通(=W0);**头号发现 `dsh-mcp-client`:桥 = 纯 Python MCP server,推翻 Part I "TS 薄桥不可避免"假设**;hello 桩端到端通;headless 实证 agent 改文件不问人(R1 红线实锤) |
-| 08-26 | 插件拆分方向定型(market/ops/harness 固定 + research/lab 灵活);"市场无关接入框架"三镜头压力测试(24 发现)→ spec;用户收缩:**"不用加太多,留一个位置给 market 就行"** → **W1 第一刀落地:`youzi_mcp/` 真数据上线,502 测试绿,E2E 全通,web 驾驶舱可用** |
+| 08-26 | 插件拆分方向定型(market/ops/harness 固定 + research/lab 灵活);"市场无关接入框架"三镜头压力测试(24 发现)→ spec;用户收缩:**"不用加太多,留一个位置给 market 就行"** → **W1 第一刀落地:`youzi_mcp/` 真数据上线,502 测试绿,E2E 全通,web 驾驶舱可用**;首批 4 commit FF 入 main(`44558bf`) |
+| 08-26/27 | **方向再定**:youzi_web 升格为唯一门面、dsh 降为引擎(嵌入=v2);双轨框架(A 产品闭环 / B 北极星)+ 模块化组装序(①市场→②策略→③账户→④live 串联)。**B1 建库完成:PIT 快照 1027/1027 OHLCV 零缺失**(267 缺口当晚补齐+3 空帧重试成功)。**① 市场模块入 main(`fcfb8c1`)**:/api/market/* ×4 + 盘面页(指标卡/梯队塔/候选表/SVG 红涨绿跌 K 线),共享 market_core 读模型,513 测试。**② 策略模块入 main(`f6f8085`)**:用户定调"产品核心=策略+agent"+三大件 IA(市场/策略/账户);`youzi_mcp/harness_core.py` H 读模型 + **相位透镜**(复用 select_for_prompt,所见即注入)+ 技能库双栏/纪律心法/七相位环(点相位跳透镜);研究+决策路由并入策略子导航,账户诚实占位;525 测试。两模块均 Playwright 截图验收 |
+| 08-28 | **③ 账户/live 后端经 PR #5 入 main(`134c0b6`,584 测试)**:另一会话产出 live.db 6 表事务域(agent_run 单向状态机 / adopt 单事务 / fill 幂等)+ `LiveDecisionService` 薄编排(run 冻结市场+账户+H → adopt 纯离线校验,拒绝 t+1 取数)+ `/api/*` 8 端点。本会话评审:独立 venv 实测 549 绿、试合并暴露与 6 月运营库的 5 个 add/add 架构级冲突 → **裁决:6 月 store 退役,live 侧接任**(fold 纪律=此前 ledger.jsonl 提案的内核,介质落 SQLite);评审四修(`ensure_full_ts` 完整 ISO→422 / 基线后补录告警 / `busy_timeout=5000` / 科创板 `min_lot` 200 股)+ 回归测试进 PR;合 main 后 584 绿 → push main(19 commit)→ merge → 删分支。留债:confirm Web 端点、缺 key 500→503、连接 yield-close、sentiment_norm 回灌、market/snapshot 与 market_core 统一 |
 
 ### W0 侦察清单状态
 
