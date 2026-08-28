@@ -47,6 +47,15 @@ LOT = 100                     # A 股最小交易单位:一手 = 100 股
 CLOSE_TIME = Time(15, 0)      # 收盘快照时点(与 ReplayEngine 一致)
 
 
+def min_lot(code: str) -> int:
+    """最小申报数量:科创板(68 开头)200 股起,其余板块一手 100 股。
+
+    与 `limit_threshold` 同理按 code 前缀分板块——用统一的 100 会把
+    688 候选的最低资金占用低估一半,资金校验假 ok。
+    """
+    return 200 if str(code).startswith("68") else LOT
+
+
 class StrategyNotFoundError(ValueError):
     """请求了不存在的策略版本 → web 层映射 422。"""
 
@@ -113,7 +122,8 @@ def check_candidate(entry: dict, account_ctx: dict) -> dict:
     if limit_pct is None:
         limit_pct = limit_threshold(str(entry.get("code", "")), str(entry.get("name") or ""))
 
-    out: dict = {"limit_pct": limit_pct, "ref_price": close}
+    lot = min_lot(str(entry.get("code", "")))
+    out: dict = {"limit_pct": limit_pct, "ref_price": close, "lot_size": lot}
 
     # 1) 定价
     if close is None or close <= 0:
@@ -124,9 +134,9 @@ def check_candidate(entry: dict, account_ctx: dict) -> dict:
     else:
         checks["pricing"] = "ok"
         limit_price = round(close * (1.0 + limit_pct), 4)
-        lot_cost = round(limit_price * LOT, 2)
+        lot_cost = round(limit_price * lot, 2)
     out["limit_price_next"] = limit_price       # t+1 涨停价(最坏成交价)
-    out["lot_cost"] = lot_cost                  # 买一手的最坏资金占用
+    out["lot_cost"] = lot_cost                  # 按最小申报数量的最坏资金占用
 
     # 2) 资金
     cash = account_ctx.get("cash")
@@ -137,7 +147,8 @@ def check_candidate(entry: dict, account_ctx: dict) -> dict:
         checks["cash"] = "unknown"
     elif cash < lot_cost:
         checks["cash"] = "blocked"
-        reasons.append(f"现金 {cash:.2f} 不足以按涨停价买入一手({lot_cost:.2f})")
+        reasons.append(
+            f"现金 {cash:.2f} 不足以按涨停价买入最小申报数量 {lot} 股({lot_cost:.2f})")
     else:
         checks["cash"] = "ok"
 
@@ -414,4 +425,5 @@ def _default_seeds_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "seeds"
 
 
-__all__ = ["LiveDecisionService", "StrategyNotFoundError", "check_candidate", "LOT"]
+__all__ = ["LiveDecisionService", "StrategyNotFoundError", "check_candidate", "LOT",
+           "min_lot"]

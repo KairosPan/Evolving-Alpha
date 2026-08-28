@@ -347,3 +347,15 @@ def test_full_chain_run_adopt_confirm_fill_updates_positions():
     assert [(p.code, p.qty) for p in view.positions] == [("600000", 100)]
     assert view.cash == pytest.approx(-(12.1 * 100 + 3.0))
     assert view.n_fills == 1                             # 幂等:只入账一次
+
+
+def test_check_candidate_star_market_uses_200_share_min_lot():
+    """科创板最小申报 200 股:资金校验按 200 股算,不按主板一手 100 低估一半。"""
+    ctx = {"is_absolute_cash": True, "cash": 20000.0, "positions": {}}
+    star = check_candidate({"code": "688001", "name": "科", "close": 100.0}, ctx)
+    assert star["lot_size"] == 200
+    assert star["lot_cost"] == pytest.approx(24000.0)     # 100×1.20 涨停价 × 200 股
+    assert star["checks"]["cash"] == "blocked"
+    main_board = check_candidate({"code": "600519", "name": "甲", "close": 100.0}, ctx)
+    assert main_board["lot_size"] == 100
+    assert main_board["checks"]["cash"] == "ok"           # 110 × 100 = 11000 ≤ 20000
