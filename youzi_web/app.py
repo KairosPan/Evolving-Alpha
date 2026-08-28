@@ -28,6 +28,7 @@ def _first_enabled_path(features) -> str | None:
 
 
 def create_app() -> FastAPI:
+    from youzi_web.api import install_api
     from youzi_web.features import FEATURES
     app = FastAPI(title="youzi")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.state.features = FEATURES
     for f in FEATURES:
         app.include_router(f.router)
+    install_api(app)            # /api/* live 决策 JSON API + 领域异常 → HTTP 码映射
 
     @app.get("/")
     def home(request: Request):

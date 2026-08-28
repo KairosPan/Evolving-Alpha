@@ -1,297 +1,197 @@
+# youzi/store/ops_repo.py
+"""作战 session 仓储:ops_session / ops_candidate / decision。
+
+`ops_session` = "某账户某交易日采纳的那一份建议单",由 `UNIQUE(account_id, trade_date)`
+把"一天一单"钉进 schema——重复采纳同日 → `DuplicateError`,**报错给调用方**,
+不静默覆盖(co-pilot 的人工确认链不能被悄悄改写)。
+
+`decision` = 人对某候选的确认动作(buy/skip/watch),`UNIQUE(candidate_id)`
+保证一个候选只被确认一次。**决策不等于成交**——成交另走 `fill`。
+"""
 from __future__ import annotations
 
 import json
+import sqlite3
+import uuid
 from datetime import date as Date, datetime as DateTime
-from typing import Callable
+from typing import Literal
 
-from youzi.store import account
-from youzi.store.db import Database
-from youzi.store.models import (
-    AccountDaily, OpsCandidate, OpsDecision, OpsFill, OpsPosition, OpsReview,
-    OpsSession,
-)
+from pydantic import BaseModel, ConfigDict
 
+from youzi.store.agent_run_repo import stamp_adopted
+from youzi.store.errors import DuplicateError, NotFoundError
 
-def _iso(v) -> str | None:
-    return v.isoformat() if v is not None else None
+DecisionAction = Literal["buy", "skip", "watch"]
+CheckStatus = Literal["ok", "blocked", "unknown"]
 
 
-def _parse_date(s: str | None) -> Date | None:
-    return Date.fromisoformat(s) if s else None
+class OpsCandidate(BaseModel):
+    """建议单上的一个候选(frozen 读模型)。
+
+    check_status:`ok`=确定性校验通过;`blocked`=校验不过(**标记保留、不静默丢弃**,
+    人仍看得见系统为何否掉);`unknown`=缺数据无法判定(诚实的第三态,不当作通过)。
+    """
+    model_config = ConfigDict(frozen=True)
+    candidate_id: str
+    session_id: str
+    rank: int
+    code: str
+    name: str = ""
+    pattern: str = ""
+    score: float | None = None
+    reason: str = ""
+    plan_json: str | None = None
+    check_status: CheckStatus
+    check_json: str | None = None
+    created_at: str
+
+    def plan(self) -> dict:
+        return _loads_dict(self.plan_json)
+
+    def check(self) -> dict:
+        return _loads_dict(self.check_json)
 
 
-def _parse_dt(s: str | None) -> DateTime | None:
-    return DateTime.fromisoformat(s) if s else None
+class OpsSession(BaseModel):
+    """某账户某交易日的建议单(frozen 读模型)。"""
+    model_config = ConfigDict(frozen=True)
+    session_id: str
+    account_id: str
+    trade_date: Date
+    agent_run_id: str
+    created_at: str
+    candidates: list[OpsCandidate] = []
+
+
+class Decision(BaseModel):
+    """人工确认记录(frozen 读模型)。"""
+    model_config = ConfigDict(frozen=True)
+    decision_id: str
+    session_id: str
+    candidate_id: str
+    action: DecisionAction
+    note: str = ""
+    confirmed_at: str
+
+
+_CAND_COLS = ("candidate_id", "session_id", "rank", "code", "name", "pattern",
+              "score", "reason", "plan_json", "check_status", "check_json", "created_at")
+_SESSION_COLS = ("session_id", "account_id", "trade_date", "agent_run_id", "created_at")
+_DECISION_COLS = ("decision_id", "session_id", "candidate_id", "action", "note",
+                  "confirmed_at")
+
+
+def _loads_dict(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _now() -> str:
+    return DateTime.now().isoformat(timespec="seconds")
+
+
+def _dumps(d: dict | None) -> str | None:
+    return json.dumps(d, ensure_ascii=False) if d is not None else None
 
 
 class OpsRepository:
-    """运营全闭环 Repository:会话/候选/决策/成交/持仓/复盘/账户/分析。沿用容器约定 __bool__=True。"""
+    """ops_session / ops_candidate / decision 的纯仓储。"""
 
-    def __init__(self, db: Database, clock: Callable[[], DateTime] = DateTime.now) -> None:
-        self._db = db
-        self._clock = clock
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
 
-    def __bool__(self) -> bool:
-        return True
+    # ── 写 ────────────────────────────────────────────────────────────────
+    def adopt_run(self, *, run_id: str, account_id: str, trade_date: Date,
+                  candidates: list[dict], session_id: str | None = None) -> OpsSession:
+        """采纳一次运行:打 adopted_at 戳 + 建 session + 写候选,**单事务全成或全不成**。
 
-    # ── 会话 ──
-    def create_session(self, s: OpsSession) -> OpsSession:
-        created = s.created_at or self._clock()
-        cur = self._db.execute(
-            "INSERT INTO ops_session (trade_date, regime_read, harness_version, "
-            "decision_run_ref, no_trade_reason, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (_iso(s.trade_date), s.regime_read, s.harness_version, s.decision_run_ref,
-             s.no_trade_reason, s.note, _iso(created)))
-        self._db.commit()
-        return s.model_copy(update={"session_id": cur.lastrowid, "created_at": created})
-
-    def get_session(self, session_id: int) -> OpsSession | None:
-        row = self._db.query_one(
-            "SELECT * FROM ops_session WHERE session_id=?", (session_id,))
-        return self._row_to_session(row) if row else None
-
-    def session_for_date(self, trade_date: Date) -> OpsSession | None:
-        row = self._db.query_one(
-            "SELECT * FROM ops_session WHERE trade_date=?", (_iso(trade_date),))
-        return self._row_to_session(row) if row else None
-
-    def list_sessions(self, limit: int = 50) -> list[OpsSession]:
-        rows = self._db.query_all(
-            "SELECT * FROM ops_session ORDER BY trade_date DESC LIMIT ?", (limit,))
-        return [self._row_to_session(r) for r in rows]
-
-    # ── 候选 ──
-    def add_candidates(self, session_id: int,
-                       cands: list[OpsCandidate]) -> list[OpsCandidate]:
-        out: list[OpsCandidate] = []
-        for c in cands:
-            cur = self._db.execute(
-                "INSERT INTO ops_candidate (session_id, code, name, pattern, rank, "
-                "confidence, reason, plan_entry, plan_stop, plan_target, plan_note, raw) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (session_id, c.code, c.name, c.pattern, c.rank, c.confidence, c.reason,
-                 c.plan_entry, c.plan_stop, c.plan_target, c.plan_note,
-                 json.dumps(c.raw, ensure_ascii=False) if c.raw is not None else None))
-            out.append(c.model_copy(update={"candidate_id": cur.lastrowid,
-                                            "session_id": session_id}))
-        self._db.commit()
-        return out
-
-    def candidates_for(self, session_id: int) -> list[OpsCandidate]:
-        rows = self._db.query_all(
-            "SELECT * FROM ops_candidate WHERE session_id=? ORDER BY rank ASC",
-            (session_id,))
-        return [self._row_to_candidate(r) for r in rows]
-
-    # ── 决策命令 API ──
-    def _insert_decision(self, d: OpsDecision) -> OpsDecision:
-        created = d.created_at or self._clock()
-        cur = self._db.execute(
-            "INSERT INTO ops_decision (session_id, candidate_id, code, action, "
-            "intent_side, planned_price, planned_qty, status, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (d.session_id, d.candidate_id, d.code, d.action, d.intent_side,
-             d.planned_price, d.planned_qty, d.status, d.note, _iso(created)))
-        self._db.commit()
-        return d.model_copy(update={"decision_id": cur.lastrowid, "created_at": created})
-
-    def confirm_decision(self, session_id: int, candidate_id: int, *, intent_side: str,
-                         planned_price: float | None = None,
-                         planned_qty: int | None = None, note: str = "") -> OpsDecision:
-        row = self._db.query_one(
-            "SELECT code FROM ops_candidate WHERE candidate_id=?", (candidate_id,))
-        if row is None:
-            raise ValueError(f"候选 {candidate_id} 不存在")
-        return self._insert_decision(OpsDecision(
-            session_id=session_id, candidate_id=candidate_id, code=row["code"],
-            action="confirm", intent_side=intent_side, planned_price=planned_price,
-            planned_qty=planned_qty, status="planned", note=note))
-
-    def skip_candidate(self, session_id: int, candidate_id: int, *,
-                       note: str = "") -> OpsDecision:
-        row = self._db.query_one(
-            "SELECT code FROM ops_candidate WHERE candidate_id=?", (candidate_id,))
-        if row is None:
-            raise ValueError(f"候选 {candidate_id} 不存在")
-        return self._insert_decision(OpsDecision(
-            session_id=session_id, candidate_id=candidate_id, code=row["code"],
-            action="skip", status="cancelled", note=note))
-
-    def manual_add(self, session_id: int, code: str, *, intent_side: str,
-                   planned_price: float | None = None, planned_qty: int | None = None,
-                   note: str = "") -> OpsDecision:
-        return self._insert_decision(OpsDecision(
-            session_id=session_id, candidate_id=None, code=code, action="manual_add",
-            intent_side=intent_side, planned_price=planned_price,
-            planned_qty=planned_qty, status="planned", note=note))
-
-    def decisions_for(self, session_id: int) -> list[OpsDecision]:
-        rows = self._db.query_all(
-            "SELECT * FROM ops_decision WHERE session_id=? ORDER BY decision_id ASC",
-            (session_id,))
-        return [self._row_to_decision(r) for r in rows]
-
-    # ── 成交 + 持仓 ──
-    def record_fill(self, fill: OpsFill) -> tuple[OpsFill, OpsPosition]:
-        pos = self.open_position_for(fill.code)
-        if pos is None:
-            if fill.side == "sell":
-                raise ValueError(f"{fill.code} 无持仓可卖")
-            pos = self._create_position(fill)
+        `candidates` 每项:code/name/pattern/score/reason/plan(dict)/check_status/check(dict)。
+        前置条件(succeeded 且未采纳)由 `stamp_adopted` 在 SQL 侧强制;
+        `UNIQUE(account_id, trade_date)` 冲突 → `DuplicateError`(事务回滚,戳也不落)。
+        """
+        sid = session_id or uuid.uuid4().hex
+        ts = _now()
         try:
-            state = account.PositionState(
-                qty_open=pos.qty_open, avg_cost=pos.avg_cost,
-                realized_pnl=pos.realized_pnl, status=pos.status)
-            if fill.side == "buy":
-                state = account.apply_buy(state, fill.price, fill.qty, fill.fee)
-            else:
-                state = account.apply_sell(state, fill.price, fill.qty, fill.fee)
-            closed_on = fill.filled_at.date() if state.status == "closed" else None
-            self._db.execute(
-                "UPDATE ops_position SET qty_open=?, avg_cost=?, realized_pnl=?, "
-                "status=?, closed_on=? WHERE position_id=?",
-                (state.qty_open, state.avg_cost, state.realized_pnl, state.status,
-                 _iso(closed_on), pos.position_id))
-            cur = self._db.execute(
-                "INSERT INTO ops_fill (decision_id, position_id, code, side, price, qty, "
-                "filled_at, fee, note) VALUES (?,?,?,?,?,?,?,?,?)",
-                (fill.decision_id, pos.position_id, fill.code, fill.side, fill.price,
-                 fill.qty, _iso(fill.filled_at), fill.fee, fill.note))
-            if fill.decision_id is not None:
-                self._db.execute(
-                    "UPDATE ops_decision SET status='executed' WHERE decision_id=?",
-                    (fill.decision_id,))
-            self._db.commit()
-        except Exception:
-            self._db.conn.rollback()
-            raise
-        saved_fill = fill.model_copy(update={"fill_id": cur.lastrowid,
-                                             "position_id": pos.position_id})
-        return saved_fill, self.get_position(pos.position_id)
+            with self._conn:
+                stamp_adopted(self._conn, run_id, ts)
+                self._conn.execute(
+                    "INSERT INTO ops_session (session_id, account_id, trade_date,"
+                    " agent_run_id, created_at) VALUES (?,?,?,?,?)",
+                    (sid, account_id, trade_date.isoformat(), run_id, ts))
+                for rank, c in enumerate(candidates):
+                    self._conn.execute(
+                        "INSERT INTO ops_candidate (candidate_id, session_id, rank, code,"
+                        " name, pattern, score, reason, plan_json, check_status, check_json,"
+                        " created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (uuid.uuid4().hex, sid, rank, str(c["code"]),
+                         str(c.get("name") or ""), str(c.get("pattern") or ""),
+                         c.get("score"), str(c.get("reason") or ""),
+                         _dumps(c.get("plan")), c.get("check_status") or "unknown",
+                         _dumps(c.get("check")), ts))
+        except sqlite3.IntegrityError as e:
+            raise DuplicateError(
+                f"账户 {account_id} 在 {trade_date} 已有建议单(或候选 code 重复): {e}") from e
+        return self.require_session(sid)
 
-    def _create_position(self, fill: OpsFill) -> OpsPosition:
-        pattern = ""
-        if fill.decision_id is not None:
-            row = self._db.query_one(
-                "SELECT c.pattern AS pattern FROM ops_decision d "
-                "LEFT JOIN ops_candidate c ON c.candidate_id=d.candidate_id "
-                "WHERE d.decision_id=?", (fill.decision_id,))
-            if row and row["pattern"]:
-                pattern = row["pattern"]
-        cur = self._db.execute(
-            "INSERT INTO ops_position (code, pattern, opened_on, status, qty_open, "
-            "avg_cost, realized_pnl, origin_decision_id) VALUES (?,?,?,?,?,?,?,?)",
-            (fill.code, pattern, _iso(fill.filled_at.date()), "open", 0, 0.0, 0.0,
-             fill.decision_id))
-        return self.get_position(cur.lastrowid)
+    def confirm(self, *, candidate_id: str, action: DecisionAction,
+                note: str = "", decision_id: str | None = None) -> Decision:
+        """人工确认一个候选。同一候选重复确认 → `DuplicateError`(UNIQUE(candidate_id))。"""
+        cand = self.get_candidate(candidate_id)
+        if cand is None:
+            raise NotFoundError(f"候选不存在: {candidate_id}")
+        did = decision_id or uuid.uuid4().hex
+        try:
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO decision (decision_id, session_id, candidate_id, action,"
+                    " note, confirmed_at) VALUES (?,?,?,?,?,?)",
+                    (did, cand.session_id, candidate_id, action, note, _now()))
+        except sqlite3.IntegrityError as e:
+            raise DuplicateError(f"候选已确认过: {candidate_id}") from e
+        row = self._conn.execute(
+            "SELECT * FROM decision WHERE decision_id = ?", (did,)).fetchone()
+        return Decision.model_validate({k: row[k] for k in _DECISION_COLS})
 
-    def get_position(self, position_id: int) -> OpsPosition | None:
-        row = self._db.query_one(
-            "SELECT * FROM ops_position WHERE position_id=?", (position_id,))
-        return self._row_to_position(row) if row else None
+    # ── 读 ────────────────────────────────────────────────────────────────
+    def get_candidate(self, candidate_id: str) -> OpsCandidate | None:
+        row = self._conn.execute(
+            "SELECT * FROM ops_candidate WHERE candidate_id = ?", (candidate_id,)).fetchone()
+        return OpsCandidate.model_validate({k: row[k] for k in _CAND_COLS}) if row else None
 
-    def open_position_for(self, code: str) -> OpsPosition | None:
-        row = self._db.query_one(
-            "SELECT * FROM ops_position WHERE code=? AND status='open' "
-            "ORDER BY position_id DESC LIMIT 1", (code,))
-        return self._row_to_position(row) if row else None
+    def candidates(self, session_id: str) -> list[OpsCandidate]:
+        rows = self._conn.execute(
+            "SELECT * FROM ops_candidate WHERE session_id = ? ORDER BY rank",
+            (session_id,)).fetchall()
+        return [OpsCandidate.model_validate({k: r[k] for k in _CAND_COLS}) for r in rows]
 
-    def positions(self, status: str | None = None) -> list[OpsPosition]:
-        if status is None:
-            rows = self._db.query_all(
-                "SELECT * FROM ops_position ORDER BY position_id ASC")
-        else:
-            rows = self._db.query_all(
-                "SELECT * FROM ops_position WHERE status=? ORDER BY position_id ASC",
-                (status,))
-        return [self._row_to_position(r) for r in rows]
-
-    def _row_to_position(self, r) -> OpsPosition:
-        return OpsPosition(
-            position_id=r["position_id"], code=r["code"], name=r["name"],
-            pattern=r["pattern"], opened_on=_parse_date(r["opened_on"]),
-            closed_on=_parse_date(r["closed_on"]), status=r["status"],
-            qty_open=r["qty_open"], avg_cost=r["avg_cost"],
-            realized_pnl=r["realized_pnl"], origin_decision_id=r["origin_decision_id"])
-
-    # ── 复盘 ──
-    def add_review(self, r: OpsReview) -> OpsReview:
-        created = r.created_at or self._clock()
-        cur = self._db.execute(
-            "INSERT INTO ops_review (session_id, position_id, body, tags, lesson_ref, "
-            "created_at) VALUES (?,?,?,?,?,?)",
-            (r.session_id, r.position_id, r.body, r.tags, r.lesson_ref, _iso(created)))
-        self._db.commit()
-        return r.model_copy(update={"review_id": cur.lastrowid, "created_at": created})
-
-    def reviews_for_session(self, session_id: int) -> list[OpsReview]:
-        rows = self._db.query_all(
-            "SELECT * FROM ops_review WHERE session_id=? ORDER BY review_id ASC",
-            (session_id,))
-        return [self._row_to_review(r) for r in rows]
-
-    def _row_to_review(self, r) -> OpsReview:
-        return OpsReview(
-            review_id=r["review_id"], session_id=r["session_id"],
-            position_id=r["position_id"], body=r["body"], tags=r["tags"],
-            lesson_ref=r["lesson_ref"], created_at=_parse_dt(r["created_at"]))
-
-    # ── 账户日快照 ──
-    def upsert_account_daily(self, a: AccountDaily) -> AccountDaily:
-        self._db.execute(
-            "INSERT INTO ops_account_daily (trade_date, equity, cash, market_value, "
-            "realized_pnl_day, unrealized_pnl, note) VALUES (?,?,?,?,?,?,?) "
-            "ON CONFLICT(trade_date) DO UPDATE SET equity=excluded.equity, "
-            "cash=excluded.cash, market_value=excluded.market_value, "
-            "realized_pnl_day=excluded.realized_pnl_day, "
-            "unrealized_pnl=excluded.unrealized_pnl, note=excluded.note",
-            (_iso(a.trade_date), a.equity, a.cash, a.market_value,
-             a.realized_pnl_day, a.unrealized_pnl, a.note))
-        self._db.commit()
-        return a
-
-    def account_daily(self, trade_date: Date) -> AccountDaily | None:
-        row = self._db.query_one(
-            "SELECT * FROM ops_account_daily WHERE trade_date=?", (_iso(trade_date),))
+    def get_session(self, session_id: str) -> OpsSession | None:
+        row = self._conn.execute(
+            "SELECT * FROM ops_session WHERE session_id = ?", (session_id,)).fetchone()
         if row is None:
             return None
-        return AccountDaily(
-            trade_date=_parse_date(row["trade_date"]), equity=row["equity"],
-            cash=row["cash"], market_value=row["market_value"],
-            realized_pnl_day=row["realized_pnl_day"],
-            unrealized_pnl=row["unrealized_pnl"], note=row["note"])
+        return OpsSession.model_validate(
+            {**{k: row[k] for k in _SESSION_COLS},
+             "candidates": self.candidates(session_id)})
 
-    # ── 分析:按打法实战胜率(已平仓)──
-    def pattern_winrate(self) -> list[dict]:
-        rows = self._db.query_all(
-            "SELECT pattern, COUNT(*) AS closed, "
-            "SUM(CASE WHEN realized_pnl>0 THEN 1 ELSE 0 END) AS wins, "
-            "AVG(realized_pnl) AS avg_pnl FROM ops_position "
-            "WHERE status='closed' GROUP BY pattern ORDER BY closed DESC")
-        return [{"pattern": r["pattern"], "closed": r["closed"],
-                 "wins": r["wins"], "avg_pnl": r["avg_pnl"]} for r in rows]
+    def require_session(self, session_id: str) -> OpsSession:
+        s = self.get_session(session_id)
+        if s is None:
+            raise NotFoundError(f"建议单不存在: {session_id}")
+        return s
 
-    # ── row → model ──
-    def _row_to_session(self, r) -> OpsSession:
-        return OpsSession(
-            session_id=r["session_id"], trade_date=_parse_date(r["trade_date"]),
-            regime_read=r["regime_read"], harness_version=r["harness_version"],
-            decision_run_ref=r["decision_run_ref"], no_trade_reason=r["no_trade_reason"],
-            note=r["note"], created_at=_parse_dt(r["created_at"]))
+    def session_for(self, account_id: str, trade_date: Date) -> OpsSession | None:
+        row = self._conn.execute(
+            "SELECT session_id FROM ops_session WHERE account_id = ? AND trade_date = ?",
+            (account_id, trade_date.isoformat())).fetchone()
+        return self.get_session(row["session_id"]) if row else None
 
-    def _row_to_candidate(self, r) -> OpsCandidate:
-        return OpsCandidate(
-            candidate_id=r["candidate_id"], session_id=r["session_id"], code=r["code"],
-            name=r["name"], pattern=r["pattern"], rank=r["rank"],
-            confidence=r["confidence"], reason=r["reason"], plan_entry=r["plan_entry"],
-            plan_stop=r["plan_stop"], plan_target=r["plan_target"], plan_note=r["plan_note"],
-            raw=json.loads(r["raw"]) if r["raw"] else None)
-
-    def _row_to_decision(self, r) -> OpsDecision:
-        return OpsDecision(
-            decision_id=r["decision_id"], session_id=r["session_id"],
-            candidate_id=r["candidate_id"], code=r["code"], action=r["action"],
-            intent_side=r["intent_side"], planned_price=r["planned_price"],
-            planned_qty=r["planned_qty"], status=r["status"], note=r["note"],
-            created_at=_parse_dt(r["created_at"]))
+    def decisions(self, session_id: str) -> list[Decision]:
+        rows = self._conn.execute(
+            "SELECT * FROM decision WHERE session_id = ? ORDER BY confirmed_at",
+            (session_id,)).fetchall()
+        return [Decision.model_validate({k: r[k] for k in _DECISION_COLS}) for r in rows]
