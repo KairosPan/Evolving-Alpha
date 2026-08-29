@@ -27,7 +27,7 @@
 
 ### 下一步候选
 
-① **③ 账户模块前端**:表单接 `/api/accounts/fills` + 补 `confirm` Web 端点(钱路径只走人手,live.db 后端已就位);② **④ live 串联**:选日 → `POST /api/agent-runs` → adopt → 驾驶舱展示建议单;③ PR #5 留债:`build_service` 缺 key 500→503、连接 yield-close、live 侧 `sentiment_norm` 回灌、`/api/market/snapshot` 与 market_core 读模型统一;④ 继续挂固定插件 `youzi-ops`(改读 live.db)/ `youzi-harness`(harness_core 已有,包 MCP 壳即可);⑤ W0 余 3 项(零工具组合/温度/spawn 沙箱辖域)按需补测;⑥ 灵活层 `youzi-research`/`youzi-lab`(HMR 热插拔,孵化位)。
+① **④ live 串联**(组装序收官):选日 → `POST /api/agent-runs` → adopt → 驾驶舱展示建议单 → confirm 按钮(补 confirm Web 端点)→ 入账联动模拟盘;② PR #5 留债:`build_service` 缺 key 500→503、连接 yield-close、live 侧 `sentiment_norm` 回灌、`/api/market/snapshot` 与 market_core 读模型统一;③ 继续挂固定插件 `youzi-ops`(改读 live.db)/ `youzi-harness`(harness_core 已有,包 MCP 壳即可);④ W0 余 3 项(零工具组合/温度/spawn 沙箱辖域)按需补测;⑤ 灵活层 `youzi-research`/`youzi-lab`(HMR 热插拔,孵化位)。
 
 ### 执行日志
 
@@ -39,6 +39,7 @@
 | 08-26 | 插件拆分方向定型(market/ops/harness 固定 + research/lab 灵活);"市场无关接入框架"三镜头压力测试(24 发现)→ spec;用户收缩:**"不用加太多,留一个位置给 market 就行"** → **W1 第一刀落地:`youzi_mcp/` 真数据上线,502 测试绿,E2E 全通,web 驾驶舱可用**;首批 4 commit FF 入 main(`44558bf`) |
 | 08-26/27 | **方向再定**:youzi_web 升格为唯一门面、dsh 降为引擎(嵌入=v2);双轨框架(A 产品闭环 / B 北极星)+ 模块化组装序(①市场→②策略→③账户→④live 串联)。**B1 建库完成:PIT 快照 1027/1027 OHLCV 零缺失**(267 缺口当晚补齐+3 空帧重试成功)。**① 市场模块入 main(`fcfb8c1`)**:/api/market/* ×4 + 盘面页(指标卡/梯队塔/候选表/SVG 红涨绿跌 K 线),共享 market_core 读模型,513 测试。**② 策略模块入 main(`f6f8085`)**:用户定调"产品核心=策略+agent"+三大件 IA(市场/策略/账户);`youzi_mcp/harness_core.py` H 读模型 + **相位透镜**(复用 select_for_prompt,所见即注入)+ 技能库双栏/纪律心法/七相位环(点相位跳透镜);研究+决策路由并入策略子导航,账户诚实占位;525 测试。两模块均 Playwright 截图验收 |
 | 08-28 | **③ 账户/live 后端经 PR #5 入 main(`134c0b6`,584 测试)**:另一会话产出 live.db 6 表事务域(agent_run 单向状态机 / adopt 单事务 / fill 幂等)+ `LiveDecisionService` 薄编排(run 冻结市场+账户+H → adopt 纯离线校验,拒绝 t+1 取数)+ `/api/*` 8 端点。本会话评审:独立 venv 实测 549 绿、试合并暴露与 6 月运营库的 5 个 add/add 架构级冲突 → **裁决:6 月 store 退役,live 侧接任**(fold 纪律=此前 ledger.jsonl 提案的内核,介质落 SQLite);评审四修(`ensure_full_ts` 完整 ISO→422 / 基线后补录告警 / `busy_timeout=5000` / 科创板 `min_lot` 200 股)+ 回归测试进 PR;合 main 后 584 绿 → push main(19 commit)→ merge → 删分支。留债:confirm Web 端点、缺 key 500→503、连接 yield-close、sentiment_norm 回灌、market/snapshot 与 market_core 统一 |
+| 08-28(下) | **③ 账户模块=模拟盘 v1 落地(`fdfa2be`,607 测试)**:用户定调"account 先做模拟盘"。schema 零改动三约定:开户=opening 基线(现金即刻绝对口径)、虚拟成交走同一 `record_fill` 幂等、UI 标注;接真实账户=broker 基线零迁移。总览页(账户卡/持仓现价浮盈/流水/开户+入账表单,费用 JS 预估)。**18-agent 对抗式评审 14 确认项全修**,含 blocking:表单 min/step 在真浏览器提交不出去(curl QA 绕过了它);及幂等键复用假确认、opening 盖既有流水静默吞账、broker 基线持仓整个市值算浮盈、跨站表单 POST、双开 TOCTOU。Playwright 真浏览器全链路对账通过 |
 
 ### W0 侦察清单状态
 
