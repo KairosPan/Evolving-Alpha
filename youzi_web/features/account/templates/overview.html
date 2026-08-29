@@ -1,13 +1,150 @@
 {% extends "base.html" %}
 {% block title %}账户{% endblock %}
-{% block topbar %}<span class="muted">账户 · 总览</span>{% endblock %}
+{% block topbar %}
+  <span class="badge paper-badge">模拟盘</span>
+  <span class="muted">账户 <b>{{ account_id }}</b> · 持仓/现金 = 折叠成交流水(无第二份权威表)· 开户与成交只走人手</span>
+{% endblock %}
+
 {% block content %}
-<div class="card">
-  <b>账户模块在建(组装序 ③)</b>
-  <p>数据源已就绪:<code>live.db</code>(agent 运行 / 建议单 / 决策确认 / 成交流水),
-     持仓与现金 = <b>折叠成交流水</b>的查询结果,不落第二份权威表;JSON API 已通:
-     <code>/api/accounts/current</code> · <code>/api/accounts/positions</code> · <code>/api/accounts/fills</code>。
-     点亮后这里将展示:<b>持仓</b>与浮动盈亏、成交回填表单、账户净值曲线。</p>
-  <p class="muted">录入(确认决策 / 回填成交)将走本模块表单——钱路径不经任何 agent 工具面。</p>
-</div>
+{% if flash %}
+  <div class="flash {{ 'flash-err' if flash_kind == 'err' else 'flash-ok' }}">{{ flash }}</div>
+{% endif %}
+
+{% if not opened %}
+  <div class="card" style="max-width: 560px;">
+    <b>开设模拟盘账户</b>
+    <p>写入一条 <code>source="opening"</code> 基线快照(空仓 + 起始资金),此后现金为绝对口径,
+       建议单的资金校验即刻生效。将来接真实账户 = 换 account_id + broker 基线,同一套折叠,零迁移。</p>
+    <form method="post" action="/account/open" class="form-row">
+      <input type="hidden" name="account_id" value="{{ account_id }}">
+      <label class="label" for="cash">起始资金 ¥</label>
+      <input type="number" id="cash" name="cash" value="{{ default_cash }}" min="1" step="any" required>
+      <button type="submit">开户</button>
+    </form>
+  </div>
+{% else %}
+
+  <div class="metrics">
+    <div class="metric"><b class="num">{{ '%.2f'|format(view.cash) }}</b>
+      <span>现金({{ '绝对' if view.is_absolute_cash else '净变动' }}口径)</span></div>
+    <div class="metric"><b class="num">{{ '%.2f'|format(totals.mv) }}{% if not totals.priced_all %}<small>*</small>{% endif %}</b>
+      <span>持仓市值</span></div>
+    <div class="metric {{ 'up' if totals.unreal > 0 else ('down' if totals.unreal < 0 else '') }}">
+      <b class="num">{{ '%+.2f'|format(totals.unreal) }}{% if not totals.unreal_complete %}<small>*</small>{% endif %}</b>
+      <span>浮动盈亏</span></div>
+    <div class="metric {{ 'up' if view.realized_pnl > 0 else ('down' if view.realized_pnl < 0 else '') }}">
+      <b class="num">{{ '%+.2f'|format(view.realized_pnl) }}</b><span>已实现盈亏</span></div>
+    {% if totals.equity is not none %}
+    <div class="metric"><b class="num">{{ '%.2f'|format(totals.equity) }}</b><span>总资产</span></div>
+    {% endif %}
+  </div>
+  <p class="muted">
+    {% if price_day %}现价 = 快照 {{ price_day }} 收盘(前复权口径,仅参考){% else %}未配置 YOUZI_SNAPSHOT,现价/浮盈不可用{% endif %}
+    {% if not totals.priced_all %} · *部分持仓缺现价,市值/总资产不完整{% endif %}
+    {% if not totals.unreal_complete %} · *浮动盈亏不含缺现价/成本未知(基线来源)/负持仓的部分{% endif %}
+  </p>
+
+  {% for a in view.anomalies %}
+    <div class="card redline">⚠ {{ a }}</div>
+  {% endfor %}
+
+  <div class="cols">
+    <section>
+      <div class="label">持仓({{ rows | length }})</div>
+      {% if rows %}
+      <table class="data">
+        <thead><tr><th>代码</th><th>数量</th><th>成本价</th><th>现价</th><th>市值</th><th>浮动盈亏</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td class="num">{{ r.code }}</td>
+            <td class="num{{ ' down-text' if r.qty < 0 }}">{{ r.qty }}</td>
+            <td class="num">{{ '%.3f'|format(r.avg_cost) }}</td>
+            <td class="num">{{ '%.2f'|format(r.last) if r.last is not none else '—' }}</td>
+            <td class="num">{{ '%.2f'|format(r.mv) if r.mv is not none else '—' }}</td>
+            <td class="num {{ 'up-text' if r.unreal is not none and r.unreal > 0 else ('down-text' if r.unreal is not none and r.unreal < 0 else '') }}">
+              {{ '%+.2f'|format(r.unreal) if r.unreal is not none else '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="card"><div class="kline-empty">空仓。在右侧录入第一笔模拟成交</div></div>
+      {% endif %}
+
+      <div class="label" style="margin-top: 14px;">成交流水({{ fills | length }},最新在前)</div>
+      {% if fills %}
+      <table class="data">
+        <thead><tr><th>交易日</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>费用</th><th>登记时刻</th></tr></thead>
+        <tbody>
+        {% for f in fills %}
+          <tr>
+            <td class="num">{{ f.trade_date }}</td>
+            <td class="num">{{ f.code }}</td>
+            <td><span class="badge {{ 'side-buy' if f.side == 'buy' else 'side-sell' }}">{{ '买入' if f.side == 'buy' else '卖出' }}</span></td>
+            <td class="num">{{ '%.3f'|format(f.price) }}</td>
+            <td class="num">{{ f.qty }}</td>
+            <td class="num">{{ '%.2f'|format(f.fee) }}</td>
+            <td class="muted num">{{ f.created_at[:19] }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="card"><div class="kline-empty">尚无成交记录</div></div>
+      {% endif %}
+    </section>
+
+    <section style="flex: 0 0 340px;">
+      <div class="label">回报模拟成交</div>
+      <div class="card">
+        <form method="post" action="/account/fill" class="form-grid" id="fill-form"
+              data-commission-bp="{{ commission_bp }}" data-stamp-bp="{{ stamp_bp }}">
+          <input type="hidden" name="account_id" value="{{ account_id }}">
+          <input type="hidden" name="operation_id" value="{{ operation_id }}">
+          <label>交易日 <input type="date" name="trade_date" value="{{ trade_date_default }}" required></label>
+          <label>代码 <input type="text" name="code" pattern="\d{6}" placeholder="600519" required></label>
+          <label>方向
+            <select name="side" id="fill-side">
+              <option value="buy">买入</option><option value="sell">卖出</option>
+            </select></label>
+          <label>价格 <input type="number" name="price" id="fill-price" step="any" min="0.001" required></label>
+          <label>数量(股) <input type="number" name="qty" id="fill-qty" step="1" min="1" placeholder="100" required></label>
+          <label>费用 ¥ <input type="number" name="fee" id="fill-fee" step="0.01" min="0" value="0"></label>
+          <button type="submit">入账</button>
+        </form>
+        <p class="muted">费用按默认费率自动估算(佣金双边 {{ commission_bp }}bp、印花税卖侧 {{ stamp_bp }}bp),可手改;
+           operation_id 每次渲染唯一,刷新/重复提交不会重复记账。</p>
+      </div>
+      <div class="label">基线</div>
+      <div class="card">
+        <p><span class="badge">{{ baseline.source }}</span> {{ baseline.as_of[:19] }} · 起始现金 {{ '%.2f'|format(baseline.cash) }}</p>
+        <p class="muted">持仓与现金由此基线 + 之后的成交流水折叠而来;重打基线需人工写 manual/broker 快照。</p>
+      </div>
+    </section>
+  </div>
+
+  <script>
+  (function () {
+    var form = document.getElementById("fill-form");
+    if (!form) return;
+    var price = document.getElementById("fill-price"),
+        qty = document.getElementById("fill-qty"),
+        side = document.getElementById("fill-side"),
+        fee = document.getElementById("fill-fee"),
+        touched = false;
+    fee.addEventListener("input", function () { touched = true; });
+    function est() {
+      if (touched) return;
+      var p = parseFloat(price.value), q = parseInt(qty.value, 10);
+      if (!(p > 0) || !(q > 0)) return;
+      var bp = parseFloat(form.dataset.commissionBp) +
+               (side.value === "sell" ? parseFloat(form.dataset.stampBp) : 0);
+      fee.value = (p * q * bp / 10000).toFixed(2);
+    }
+    [price, qty, side].forEach(function (el) { el.addEventListener("input", est); });
+    side.addEventListener("change", est);
+  })();
+  </script>
+{% endif %}
 {% endblock %}

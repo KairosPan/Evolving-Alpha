@@ -340,6 +340,10 @@ class LiveDecisionService:
             operation_id=operation_id, account_id=account_id, trade_date=trade_date,
             code=code, side=side, price=price, qty=qty, fee=fee, decision_id=decision_id)
 
+    def open_account(self, *, account_id: str, cash: float):
+        """开户(模拟盘/真实同入口):写 opening 基线。重复开户 → DuplicateError。"""
+        return self._accounts.open_baseline(account_id=account_id, cash=cash)
+
     # ── 内部 ─────────────────────────────────────────────────────────────
     def _guarded(self, day: Date) -> GuardedSource:
         return GuardedSource(self._source, AsOfGuard(day))

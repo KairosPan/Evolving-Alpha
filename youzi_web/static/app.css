@@ -87,3 +87,22 @@ table.data td { vertical-align: top; }
 .ring-node { fill: #fff; stroke: #2a2a3f; stroke-width: 1.5; }
 a:hover .ring-node { fill: #f0f0fc; }
 .ring-label { font-size: 11.5px; fill: #1f2430; }
+
+/* ── 账户模块(模拟盘) ────────────────────────────────────────── */
+.badge.paper-badge { color: #6a3fa0; border-color: #d9c8ef; background: #f5effc; font-weight: 600; }
+.badge.side-buy { color: #d43a2f; border-color: #f0c3bf; background: #fdf0ef; }
+.badge.side-sell { color: #1f7a50; border-color: #bfe3d2; background: #eef9f3; }
+.flash { border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
+.flash-ok { background: #eef9f3; border: 1px solid #bfe3d2; color: #1f7a50; }
+.flash-err { background: #fdf0ef; border: 1px solid #f0c3bf; color: #d43a2f; }
+.form-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.form-grid { display: flex; flex-direction: column; gap: 8px; }
+.form-grid label { display: flex; justify-content: space-between; align-items: center;
+                   gap: 8px; font-size: 13px; color: #556; }
+.form-grid input, .form-grid select, .form-row input {
+  font-size: 13px; padding: 4px 7px; border: 1px solid #d9d9e6; border-radius: 6px;
+  background: #fff; width: 170px; }
+.form-grid button, .form-row button {
+  font-size: 13px; padding: 6px 14px; border: none; border-radius: 6px;
+  background: #2a2a3f; color: #fff; cursor: pointer; align-self: flex-end; }
+.form-grid button:hover, .form-row button:hover { background: #3d3d5c; }

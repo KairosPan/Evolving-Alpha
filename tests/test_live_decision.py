@@ -338,9 +338,9 @@ def test_full_chain_run_adopt_confirm_fill_updates_positions():
         operation_id="op-1", account_id="A", trade_date=D1, code=cand.code,
         side="buy", price=12.1, qty=100, fee=3.0, decision_id=decision.decision_id)
     assert created is True
-    again, created2 = svc.record_fill(
+    again, created2 = svc.record_fill(          # 真实重试 = 原样重发(含 decision_id)
         operation_id="op-1", account_id="A", trade_date=D1, code=cand.code,
-        side="buy", price=12.1, qty=100, fee=3.0)
+        side="buy", price=12.1, qty=100, fee=3.0, decision_id=decision.decision_id)
     assert created2 is False and again.fill_id == fill.fill_id
 
     view = svc.account_view("A")

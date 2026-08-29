@@ -22,7 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youzi.store.errors import NotFoundError
+from youzi.store.errors import DuplicateError, NotFoundError
 
 Side = Literal["buy", "sell"]
 
@@ -79,6 +79,7 @@ class AccountView(BaseModel):
     n_fills: int = 0                    # 叠加在基线之上的 fill 笔数
     baseline_as_of: str | None = None   # 基线快照时点;None = 无基线(cash 是净变动)
     baseline_source: str = ""
+    baseline_codes: list[str] = Field(default_factory=list)   # 数量含基线来源的 code(无成本价,浮盈不可算)
     anomalies: list[str] = Field(default_factory=list)
 
     @property
@@ -139,12 +140,29 @@ class AccountRepo:
         """登记成交,**以 operation_id 幂等**。
 
         返回 `(fill, created)`:`created=False` 表示这条 operation_id 早已入账,
-        返回的是**已有**记录,本次不重复入账(字段冲突亦不覆盖——先到为准,
-        重复提交是网络重试的常态,静默改写才是事故)。
+        且**本次提交与已有记录字段一致**(网络重试的常态),不重复入账。
+        同 operation_id 携带**不同**字段 → `DuplicateError`:那不是重试,是幂等键
+        被复用提交另一笔交易,静默返回旧记录会把新成交丢掉还给出假确认。
         """
+
+        def _settle(existing: Fill) -> tuple[Fill, bool]:
+            same = (existing.account_id == account_id
+                    and existing.trade_date == trade_date
+                    and existing.code == code and existing.side == side
+                    and existing.price == float(price) and existing.qty == int(qty)
+                    and existing.fee == float(fee)
+                    and existing.decision_id == decision_id)
+            if not same:
+                raise DuplicateError(
+                    f"operation_id {operation_id!r} 已被另一笔不同成交占用"
+                    f"(已有:{existing.account_id} {existing.trade_date} {existing.code}"
+                    f" {existing.side} {existing.price}×{existing.qty});"
+                    "请换新的 operation_id 提交本笔")
+            return existing, False
+
         existing = self.fill_by_operation(operation_id)
         if existing is not None:
-            return existing, False
+            return _settle(existing)
         fid = uuid.uuid4().hex
         try:
             with self._conn:
@@ -158,7 +176,7 @@ class AccountRepo:
             # 并发下同 operation_id 抢到 UNIQUE(Python 侧检查的 TOCTOU 兜底)
             dup = self.fill_by_operation(operation_id)
             if dup is not None:
-                return dup, False
+                return _settle(dup)
             raise
         return self.require_fill(fid), True
 
@@ -197,6 +215,48 @@ class AccountRepo:
         return [_row_to_fill(r) for r in self._conn.execute(sql, args).fetchall()]
 
     # ── account_snapshot ─────────────────────────────────────────────────
+    def open_baseline(self, *, account_id: str, cash: float,
+                      at: str | None = None) -> AccountSnapshotRow:
+        """开户:写一条 `source='opening'` 基线快照(空仓 + 起始资金)。
+
+        模拟盘/真实账户共用这一个入口——"模拟盘"不是新表,只是 opening 基线
+        + 人工回报虚拟成交的约定。两种情形大声拒绝(`DuplicateError`):
+          · 已有任何基线(opening/manual/broker)——重复开户会悄悄改写折叠起算点;
+          · 已有成交流水——opening 自称"空仓起点、无既往交易",盖在既有 fills 之上
+            会让它们被折叠的 since 过滤永久静默剔除(钱凭空消失);既有账请补
+            manual/broker 基线,不要开户。
+        前置检查给可读错误;真正的守卫是单语句 `INSERT ... WHERE NOT EXISTS`
+        (并发双开的 TOCTOU 由 SQL 侧兜底,与 record_fill 的 UNIQUE 同纪律)。
+        """
+        if cash <= 0:
+            raise ValueError(f"起始资金必须为正,收到 {cash!r}")
+        existing = self.latest_baseline(account_id)
+        if existing is not None:
+            raise DuplicateError(
+                f"账户 {account_id} 已有基线({existing.as_of}, source={existing.source}),"
+                "不可重复开户;如需重置请人工补 manual/broker 基线")
+        if self.fills(account_id):
+            raise DuplicateError(
+                f"账户 {account_id} 已有成交流水,不能再开 opening 基线"
+                "(会把既有成交从折叠里静默剔除);既有账请补 manual/broker 基线")
+        ts = ensure_full_ts(at, "at") if at else _now()
+        marks = ",".join("?" for _ in BASELINE_SOURCES)
+        with self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO account_snapshot (account_id, as_of, cash, positions_json,"
+                " source, created_at) SELECT ?,?,?,?,?,?"
+                " WHERE NOT EXISTS (SELECT 1 FROM account_snapshot"
+                f"   WHERE account_id = ? AND source IN ({marks}))"
+                " AND NOT EXISTS (SELECT 1 FROM fill WHERE account_id = ?)",
+                (account_id, ts, float(cash), "{}", "opening", _now(),
+                 account_id, *sorted(BASELINE_SOURCES), account_id))
+        if cur.rowcount != 1:       # 并发下另一请求抢先(前置检查的 TOCTOU 兜底)
+            raise DuplicateError(
+                f"账户 {account_id} 开户失败:已有基线或成交流水(并发抢先?),请刷新核对")
+        snap = self.get_snapshot(account_id, ts)
+        assert snap is not None                       # 刚写入,必在
+        return snap
+
     def put_snapshot(self, *, account_id: str, as_of: str, cash: float,
                      positions: dict[str, int], source: str = "") -> AccountSnapshotRow:
         """写(或按 (account_id, as_of) 覆盖)一份账户快照。"""
@@ -266,10 +326,12 @@ class AccountRepo:
                 "其 avg_cost 以 0 计,勿据此算浮盈")
 
         rows = self.fills(account_id, since=(base.as_of if base else None), until=as_of)
-        if base:
+        if base and base.source != "opening":
             # fills 的时间轴是登记时刻(created_at),基线之后**补录**的更早交易
             # (trade_date 早于基线日)若已计入基线,会被重复叠加——查不出对错,
-            # 但查得出嫌疑:诚实登记,让人核对,不静默吞掉
+            # 但查得出嫌疑:诚实登记,让人核对,不静默吞掉。
+            # opening 基线除外:开仓基线定义上是"空仓起点、无既往交易",
+            # 模拟盘补录历史交易日成交是常规操作,不构成重复计账嫌疑
             backfilled = [f for f in rows if f.trade_date.isoformat() < base.as_of[:10]]
             if backfilled:
                 shown = ", ".join(f.operation_id for f in backfilled[:3])
@@ -304,7 +366,9 @@ class AccountRepo:
             account_id=account_id, as_of=as_of, cash=round(cash, 6),
             positions=positions, realized_pnl=round(realized, 6), n_fills=len(rows),
             baseline_as_of=(base.as_of if base else None),
-            baseline_source=(base.source if base else ""), anomalies=anomalies)
+            baseline_source=(base.source if base else ""),
+            baseline_codes=sorted(c for c, q in (base.positions if base else {}).items() if q),
+            anomalies=anomalies)
 
     def positions(self, account_id: str, *, as_of: str | None = None) -> list[Position]:
         """折叠出的持仓列表(fold 的便捷投影)。"""

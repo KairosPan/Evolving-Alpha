@@ -178,3 +178,16 @@ def test_accounts_date_only_as_of_is_422(client):
         r = client.get(path, params={"account_id": "A", "as_of": "2024-06-26"})
         assert r.status_code == 422
         assert "完整 ISO" in r.json()["detail"]
+
+
+def test_open_account_api_and_duplicate(client):
+    r = client.post("/api/accounts/open", json={"account_id": "paper", "cash": 200000})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["source"] == "opening" and body["cash"] == 200000
+    assert client.post("/api/accounts/open",
+                       json={"account_id": "paper", "cash": 1}).status_code == 409
+    assert client.post("/api/accounts/open",
+                       json={"account_id": "paper", "cash": -1}).status_code == 422
+    cur = client.get("/api/accounts/current?account_id=paper").json()
+    assert cur["is_absolute_cash"] is True

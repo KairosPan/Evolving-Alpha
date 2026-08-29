@@ -29,11 +29,11 @@ def _sell(repo, op, code="600000", price=12.0, qty=100, fee=0.0, account="A"):
 def test_record_fill_is_idempotent_on_operation_id(repo):
     first, created = _buy(repo, "op1", price=10.0)
     assert created is True
-    again, created2 = _buy(repo, "op1", price=999.0, qty=9999)   # 同 op、不同内容
+    again, created2 = _buy(repo, "op1", price=10.0)   # 同 op、同内容 = 网络重试
     assert created2 is False
     assert again.fill_id == first.fill_id
-    assert (again.price, again.qty) == (10.0, 100)   # 先到为准,不被重复提交改写
     assert len(repo.fills("A")) == 1                  # 只入账一次
+    # 同 op、不同内容 ≠ 重试 → 大声拒绝(见 test_record_fill_same_op_different_fields)
 
 
 def test_idempotency_does_not_double_count_in_fold(repo):
@@ -192,3 +192,64 @@ def test_backfill_after_baseline_is_flagged(repo):
     _buy(repo, "new1")                        # trade_date=6/26 ≥ 基线日 → 不该误报
     view2 = repo.fold("A")
     assert sum("补录" in a for a in view2.anomalies) == 1
+
+
+# ── 开户(opening 基线)─────────────────────────────────────────────────
+def test_open_baseline_gives_absolute_cash(repo):
+    snap = repo.open_baseline(account_id="A", cash=200_000.0)
+    assert snap.source == "opening" and snap.positions == {}
+    view = repo.fold("A")
+    assert view.is_absolute_cash is True and view.cash == pytest.approx(200_000.0)
+
+
+def test_open_baseline_twice_is_rejected(repo):
+    from youzi.store.errors import DuplicateError
+    repo.open_baseline(account_id="A", cash=1000.0)
+    with pytest.raises(DuplicateError):
+        repo.open_baseline(account_id="A", cash=2000.0)
+    repo.open_baseline(account_id="B", cash=1.0)     # 其他账户不受影响
+
+
+def test_open_baseline_nonpositive_cash_is_rejected(repo):
+    with pytest.raises(ValueError):
+        repo.open_baseline(account_id="A", cash=0.0)
+
+
+def test_opening_baseline_backfill_is_not_flagged(repo):
+    """opening 基线=空仓起点,补录历史交易日成交是模拟盘常规操作,不告警。"""
+    repo.open_baseline(account_id="A", cash=100_000.0)
+    repo.record_fill(operation_id="old1", account_id="A", trade_date=date(2024, 6, 20),
+                     code="600000", side="buy", price=10.0, qty=100)
+    assert not any("补录" in a for a in repo.fold("A").anomalies)
+
+
+def test_record_fill_same_op_different_fields_is_rejected(repo):
+    """幂等键被复用提交另一笔不同成交 → 大声拒绝,不静默返回旧记录当假确认。"""
+    from youzi.store.errors import DuplicateError
+    _buy(repo, "op1", price=10.0, qty=100)
+    with pytest.raises(DuplicateError):
+        _buy(repo, "op1", price=11.0, qty=100)       # 同键不同价
+    with pytest.raises(DuplicateError):
+        _sell(repo, "op1", price=10.0, qty=100)      # 同键不同方向
+    with pytest.raises(DuplicateError):
+        _buy(repo, "op1", price=10.0, qty=100, account="B")   # 跨账户碰撞
+    same, created = _buy(repo, "op1", price=10.0, qty=100)    # 字段一致 = 合法重试
+    assert created is False and same.operation_id == "op1"
+
+
+def test_open_baseline_with_existing_fills_is_rejected(repo):
+    """已有流水再开 opening 基线会把既有成交从折叠里静默剔除 → 拒绝。"""
+    from youzi.store.errors import DuplicateError
+    _buy(repo, "b1")
+    with pytest.raises(DuplicateError):
+        repo.open_baseline(account_id="A", cash=100_000.0)
+    repo.open_baseline(account_id="B", cash=1.0)     # 无流水的账户不受影响
+
+
+def test_fold_exposes_baseline_codes(repo):
+    """基线来源持仓(无成本价)的 code 集合暴露给上层,浮盈展示可据此留空。"""
+    repo.put_snapshot(account_id="A", as_of="2024-06-25T15:00:00", cash=5000.0,
+                      positions={"600000": 500, "600001": 0}, source="broker")
+    view = repo.fold("A")
+    assert view.baseline_codes == ["600000"]         # qty=0 的不算
+    assert repo.fold("Z").baseline_codes == []

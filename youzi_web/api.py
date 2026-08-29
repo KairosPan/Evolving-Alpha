@@ -79,6 +79,11 @@ class AgentRunRequest(BaseModel):
     account_id: str = Field(min_length=1)
 
 
+class OpenAccountRequest(BaseModel):
+    account_id: str = Field(min_length=1)
+    cash: float = Field(gt=0)               # 起始资金(opening 基线)
+
+
 class FillRequest(BaseModel):
     operation_id: str = Field(min_length=1)     # 幂等键:重复提交不重复入账
     account_id: str = Field(min_length=1)
@@ -153,6 +158,14 @@ def account_positions(account_id: str = Query(min_length=1), as_of: str | None =
     return {"account_id": account_id, "as_of": as_of,
             "positions": [p.model_dump(mode="json") for p in view.positions],
             "anomalies": list(view.anomalies)}
+
+
+@router.post("/accounts/open", status_code=201)
+def open_account(body: OpenAccountRequest, svc: LiveDecisionService = Service) -> dict:
+    """开户:写 opening 基线(模拟盘约定入口)。已有基线 → 409,不静默改写起算点。"""
+    snap = svc.open_account(account_id=body.account_id, cash=body.cash)
+    return {"account_id": snap.account_id, "as_of": snap.as_of,
+            "cash": snap.cash, "source": snap.source}
 
 
 @router.post("/accounts/fills")
